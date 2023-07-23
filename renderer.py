@@ -32,6 +32,7 @@ def render(radiance,
            width, height, vertical_fov,
            z_near, z_far, num_samples_per_ray,
            camera_local_to_world):
+    num_rays = width * height
     # ray_origins are (1, 3)
     ray_origins = camera_local_to_world[:3, 3].view(1, 3)
     # print("ray_origins", ray_origins.shape)
@@ -40,45 +41,52 @@ def render(radiance,
     # print("ray_dirs", ray_dirs.shape)
 
     # sample_distances are (H * W, num_samples_per_ray)
-    sample_distances = \
-        torch.rand((height * width, num_samples_per_ray)) * (z_far - z_near) + z_near
+    sample_distances = sample_binned_uniform_distances(z_near, z_far, num_rays, num_samples_per_ray)
+        
     # print("sample_distances.shape", sample_distances.shape)
     # print("sample_distances", sample_distances.shape)
     
     # sample_positions are (H * W, num_samples_per_ray, 3)
     sample_positions = ray_origins + \
-        ray_dirs.view(height * width, 1, 3) * \
-        sample_distances.view(height * width, num_samples_per_ray, 1)
+        ray_dirs.view(num_rays, 1, 3) * \
+        sample_distances.view(num_rays, num_samples_per_ray, 1)
     # print("sample_positions.shape", sample_positions.shape)
     # print("sample_positions", sample_positions)
 
     # sample_dirs are (H * W, num_samples_per_ray, 3)
-    sample_dirs = ray_dirs.view(height * width, 1, 3).repeat(1, num_samples_per_ray, 1)
+    sample_dirs = ray_dirs.view(num_rays, 1, 3).repeat(1, num_samples_per_ray, 1)
     # print("sample_dirs", sample_dirs.shape)
 
     # set sample_radiance shape to (H * W * num_samples_per_ray, 3) for radiance function
     sample_densities, sample_colors = radiance(
-        sample_positions.view(height * width * num_samples_per_ray, 3),
-        sample_dirs.view(height * width * num_samples_per_ray, 3))
+        sample_positions.view(num_rays * num_samples_per_ray, 3),
+        sample_dirs.view(num_rays * num_samples_per_ray, 3))
     
-    sample_densities = sample_densities.view(height * width, num_samples_per_ray)
-    sample_colors = sample_colors.view(height * width, num_samples_per_ray, 3)
+    sample_densities = sample_densities.view(num_rays, num_samples_per_ray)
+    sample_colors = sample_colors.view(num_rays, num_samples_per_ray, 3)
     # print("sample_densities.shape", sample_densities.shape)
     # print("sample_densities", sample_densities)
     # print("sample_colors", sample_colors.shape)
     sample_total_densities = torch.sum(sample_densities, dim=1)
     # print("sample_total_densities", sample_total_densities.shape)
-    sample_weighted_colors = sample_colors * sample_densities.view(height * width, num_samples_per_ray, 1)
+    sample_weighted_colors = sample_colors * sample_densities.view(num_rays, num_samples_per_ray, 1)
     # print("sample_weighted_colors", sample_weighted_colors.shape)
     sample_total_colors = torch.sum(sample_weighted_colors, dim=1)
     # print("sample_total_colors.shape", sample_total_colors.shape)
     # print("sample_total_colors", sample_total_colors)
-    pixel_colors = sample_total_colors / sample_total_densities.view(height * width, 1)
+    pixel_colors = sample_total_colors / sample_total_densities.view(num_rays, 1)
     # print("pixel_colors", pixel_colors.shape)
     pixel_colors = pixel_colors.view(height, width, 3)
     # print("pixel_colors", pixel_colors.shape)
 
     return pixel_colors
+
+def sample_binned_uniform_distances(t_min, t_max, num_rays, num_samples_per_ray):
+    dt = t_max - t_min
+    bin_dt = dt / num_samples_per_ray
+    u = torch.rand((num_rays, num_samples_per_ray)) * bin_dt
+    t = torch.linspace(t_min, t_max - bin_dt, num_samples_per_ray) + u
+    return t
 
 def get_ray_dirs(width, height,
                  vertical_fov_radians,
@@ -124,7 +132,7 @@ def show_image(image):
     plt.imshow(image)
     plt.show()
 
-for angle in [0]:
+for angle in range(30, 61, 15):
     y_rot_rads = math.radians(angle-45)
     camera_local_to_world=torch.eye(4)
     camera_local_to_world[0, 0] = math.cos(y_rot_rads)
