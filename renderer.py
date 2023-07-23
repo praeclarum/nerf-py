@@ -117,26 +117,27 @@ def sphere_radiance(position, view_direction):
     radius = 1.0
     distance_to_surface = torch.norm(position - center.view(1, 3), dim=1, keepdim=True) - radius
     density = torch.clamp(torch.relu(-distance_to_surface), 0.0, 1.0)
-    color = torch.tensor([0.2, 1.0, 0.0]).view(1, 3).repeat(position.shape[0], 1)
+    color = torch.clamp(position - center.view(1, 3), 0, 1)
     return (density, color)
 
 def show_image(image):
     plt.imshow(image)
     plt.show()
 
-y_rot_rads = math.radians(0.0)
-camera_local_to_world=torch.eye(4)
-camera_local_to_world[0, 0] = math.cos(y_rot_rads)
-camera_local_to_world[0, 2] = math.sin(y_rot_rads)
-camera_local_to_world[2, 0] = -math.sin(y_rot_rads)
-camera_local_to_world[2, 2] = math.cos(y_rot_rads)
+for angle in [0]:
+    y_rot_rads = math.radians(angle-45)
+    camera_local_to_world=torch.eye(4)
+    camera_local_to_world[0, 0] = math.cos(y_rot_rads)
+    camera_local_to_world[0, 2] = math.sin(y_rot_rads)
+    camera_local_to_world[2, 0] = -math.sin(y_rot_rads)
+    camera_local_to_world[2, 2] = math.cos(y_rot_rads)
 
-show_image(
-    render(
-        sphere_radiance,
-        700, 500,
-        math.radians(60.0),
-        z_near=3.0, z_far=7.0,
-        num_samples_per_ray=20,
-        camera_local_to_world=camera_local_to_world))
+    show_image(
+        render(
+            sphere_radiance,
+            700, 500,
+            math.radians(60.0),
+            z_near=3.0, z_far=7.0,
+            num_samples_per_ray=20,
+            camera_local_to_world=camera_local_to_world))
 
