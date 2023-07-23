@@ -28,34 +28,62 @@ import matplotlib.pyplot as plt
 #   Accumulate the radiance and density to get final output color
 #
 
-def render(radiance, width, height,
-           vertical_fov, z_near, z_far, camera_pose):
-    # camera_pose is homogenous 4x4 therefore the
-    # camera position is the last column
-    camera_position = camera_pose[:3, 3]
-    print(camera_position.shape)
+def render(radiance,
+           width, height, vertical_fov,
+           z_near, z_far, num_samples_per_ray,
+           camera_local_to_world):
+    # ray_origins are (1, 3)
+    ray_origins = camera_local_to_world[:3, 3].view(1, 3)
+    # print("ray_origins", ray_origins.shape)
+    # ray_dirs are (H, W, 3)
+    ray_dirs = get_ray_dirs(width, height, vertical_fov, camera_local_to_world)
+    # print("ray_dirs", ray_dirs.shape)
 
-    # compute the camera view direction
-    # this is the negative z-axis of the camera
-    # in world coordinates
-    camera_view_direction = -camera_pose[:3, 2]
+    # sample_distances are (H * W, num_samples_per_ray)
+    sample_distances = \
+        torch.rand((height * width, num_samples_per_ray)) * (z_far - z_near) + z_near
+    # print("sample_distances.shape", sample_distances.shape)
+    # print("sample_distances", sample_distances.shape)
+    
+    # sample_positions are (H * W, num_samples_per_ray, 3)
+    sample_positions = ray_origins + \
+        ray_dirs.view(height * width, 1, 3) * \
+        sample_distances.view(height * width, num_samples_per_ray, 1)
+    # print("sample_positions.shape", sample_positions.shape)
+    # print("sample_positions", sample_positions)
 
-    # compute the camera up direction
-    # this is the y-axis of the camera
-    # in world coordinates
-    camera_up_direction = camera_pose[:3, 1]
+    # sample_dirs are (H * W, num_samples_per_ray, 3)
+    sample_dirs = ray_dirs.view(height * width, 1, 3).repeat(1, num_samples_per_ray, 1)
+    # print("sample_dirs", sample_dirs.shape)
 
-    # compute the camera right direction
-    # this is the x-axis of the camera
-    # in world coordinates
-    camera_right_direction = camera_pose[:3, 0]
+    # set sample_radiance shape to (H * W * num_samples_per_ray, 3) for radiance function
+    sample_densities, sample_colors = radiance(
+        sample_positions.view(height * width * num_samples_per_ray, 3),
+        sample_dirs.view(height * width * num_samples_per_ray, 3))
+    
+    sample_densities = sample_densities.view(height * width, num_samples_per_ray)
+    sample_colors = sample_colors.view(height * width, num_samples_per_ray, 3)
+    # print("sample_densities.shape", sample_densities.shape)
+    # print("sample_densities", sample_densities)
+    # print("sample_colors", sample_colors.shape)
+    sample_total_densities = torch.sum(sample_densities, dim=1)
+    # print("sample_total_densities", sample_total_densities.shape)
+    sample_weighted_colors = sample_colors * sample_densities.view(height * width, num_samples_per_ray, 1)
+    # print("sample_weighted_colors", sample_weighted_colors.shape)
+    sample_total_colors = torch.sum(sample_weighted_colors, dim=1)
+    # print("sample_total_colors.shape", sample_total_colors.shape)
+    # print("sample_total_colors", sample_total_colors)
+    pixel_colors = sample_total_colors / sample_total_densities.view(height * width, 1)
+    # print("pixel_colors", pixel_colors.shape)
+    pixel_colors = pixel_colors.view(height, width, 3)
+    # print("pixel_colors", pixel_colors.shape)
 
-    # compute the camera vertical field of view
-    # in radians
-    vertical_fov_radians = vertical_fov
+    return pixel_colors
 
-    # compute the camera horizontal field of view
-    # in radians
+def get_ray_dirs(width, height,
+                 vertical_fov_radians,
+                 camera_local_to_world):
+    # compute the camera horizontal field of view in radians
     horizontal_fov_radians = vertical_fov_radians * width / height
 
     # compute ray directions for every pixel in camera space
@@ -67,26 +95,48 @@ def render(radiance, width, height,
                                 height)
     rot_y_rads = rot_y_rads.view(1, width).repeat(height, 1)
     rot_x_rads = rot_x_rads.view(height, 1).repeat(1, width)
-
     cam_ray_x_dir = -torch.sin(rot_y_rads) * torch.cos(rot_x_rads)
     cam_ray_y_dir = torch.sin(rot_x_rads)
     cam_ray_z_dir = -torch.cos(rot_y_rads) * torch.cos(rot_x_rads)
     cam_ray_dir = torch.stack([cam_ray_x_dir, cam_ray_y_dir, cam_ray_z_dir], dim=2)
-    print(cam_ray_dir.shape, cam_ray_dir)
 
-    colors = torch.zeros((height, width, 3), dtype=torch.float32)
-    colors[:, :, 0] = 1.0
-    return colors
+    # Get the transform that rotates local camera space vectors into
+    # world space vector
+    camera_local_to_world_rot = camera_local_to_world[:3, :3]
+    ray_dir = torch.matmul(
+        camera_local_to_world_rot,
+        cam_ray_dir.view(height * width, 3, 1))
+    ray_dir = ray_dir.view(height, width, 3)
+    return ray_dir
+
+def sphere_radiance(position, view_direction):
+    # position is (N, 3)
+    # view_direction is (N, 3)
+    # returns (N, 1) density and (N, 3) color
+    center = torch.tensor([0.0, 0.0, -5.0])
+    radius = 1.0
+    distance_to_surface = torch.norm(position - center.view(1, 3), dim=1, keepdim=True) - radius
+    density = torch.clamp(torch.relu(-distance_to_surface), 0.0, 1.0)
+    color = torch.tensor([0.2, 1.0, 0.0]).view(1, 3).repeat(position.shape[0], 1)
+    return (density, color)
 
 def show_image(image):
     plt.imshow(image)
     plt.show()
 
+y_rot_rads = math.radians(0.0)
+camera_local_to_world=torch.eye(4)
+camera_local_to_world[0, 0] = math.cos(y_rot_rads)
+camera_local_to_world[0, 2] = math.sin(y_rot_rads)
+camera_local_to_world[2, 0] = -math.sin(y_rot_rads)
+camera_local_to_world[2, 2] = math.cos(y_rot_rads)
+
 show_image(
     render(
-        None,
-        7, 5,
+        sphere_radiance,
+        700, 500,
         math.radians(60.0),
-        z_near=0.1, z_far=100.0,
-        camera_pose=torch.eye(4)))    
+        z_near=3.0, z_far=7.0,
+        num_samples_per_ray=20,
+        camera_local_to_world=camera_local_to_world))
 
