@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 class ImageRenderer(nn.Module):
     def __init__(
         self, radiance, width, height, horizontal_fov, z_near, z_far, num_samples_per_ray,
-        device
+        device, include_view_direction=False
     ):
         """
         Render a `radiance` function
@@ -33,6 +33,7 @@ class ImageRenderer(nn.Module):
         self.z_far = z_far
         self.num_samples_per_ray = num_samples_per_ray
         self.cam_ray_dirs = get_cam_ray_dirs(width, height, horizontal_fov, device)
+        self.include_view_direction = include_view_direction
 
     def forward(self, camera_local_to_world):
         return render(
@@ -42,6 +43,7 @@ class ImageRenderer(nn.Module):
             self.z_far,
             self.num_samples_per_ray,
             camera_local_to_world,
+            include_view_direction=self.include_view_direction,
         )
 
 
@@ -52,6 +54,7 @@ def render(
     z_far,
     num_samples_per_ray,
     camera_local_to_world,
+    include_view_direction,
 ):
     """
     Render a `radiance` function
@@ -84,10 +87,12 @@ def render(
         num_rays, 1, 3
     ) * sample_distances.view(num_rays, num_samples_per_ray, 1)
     sample_dirs = ray_dirs.view(num_rays, 1, 3).repeat(1, num_samples_per_ray, 1)
-    sample_positions_and_dirs = torch.cat([
-        sample_positions.view(num_rays * num_samples_per_ray, 3),
-        sample_dirs.view(num_rays * num_samples_per_ray, 3),
-    ], dim=1)
+    sample_positions_and_dirs = sample_positions.view(num_rays * num_samples_per_ray, 3)
+    if include_view_direction:
+        sample_positions_and_dirs = torch.cat([
+            sample_positions.view(num_rays * num_samples_per_ray, 3),
+            sample_dirs.view(num_rays * num_samples_per_ray, 3),
+        ], dim=1)
 
     # Get the density and color at each sample point
     sample_densities_and_colors = radiance(sample_positions_and_dirs)
@@ -223,6 +228,7 @@ def show_image(image):
     fig.patch.set_visible(False)
     ax.patch.set_visible(False)
     plt.show()
+    plt.close()
 
 
 if __name__ == "__main__":
