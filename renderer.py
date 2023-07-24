@@ -136,7 +136,11 @@ def sphere_radiance(position, view_direction):
     return (density, color)
 
 def show_image(image):
-    plt.imshow(image)
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    ax.axis('off')  # remove the axis
+    fig.patch.set_visible(False)
+    ax.patch.set_visible(False)
     plt.show()
 
 if __name__ == "__main__":
@@ -152,7 +156,7 @@ if __name__ == "__main__":
         show_image(
             render(
                 sphere_radiance,
-                700, 500,
+                360, 240,
                 math.radians(60.0),
                 z_near=3.0, z_far=7.0,
                 num_samples_per_ray=11,
