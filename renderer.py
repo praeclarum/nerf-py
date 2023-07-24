@@ -11,10 +11,10 @@ class ImageRenderer(nn.Module):
         """
         Render a `radiance` function
 
-        `radiance(position, view_direction) -> (density, color (rgb))`
+        `radiance(position_and_view_direction) -> density_and_color`
 
-        where `position` and `view_direction` are shaped (N, 3),
-        density is shaped (N), color is shaped (N, 3), and N is the radiance batch size.
+        where `position_and_view_direction` are shaped (N, 6),
+        `density_and_color` is shaped (N, 4), and N is the radiance batch size.
 
         `z_near` and `z_far` are the near and far clipping planes.
 
@@ -53,10 +53,10 @@ def render(
     """
     Render a `radiance` function
 
-    `radiance(position, view_direction) -> (density, color (rgb))`
+    `radiance(position_and_view_direction) -> density_and_color`
 
-    where `position` and `view_direction` are shaped (N, 3),
-    density is shaped (N), color is shaped (N, 3), and N is the radiance batch size.
+    where `position_and_view_direction` are shaped (N, 6),
+    `density_and_color` is shaped (N, 4), and N is the radiance batch size.
 
     `z_near` and `z_far` are the near and far clipping planes.
 
@@ -80,14 +80,15 @@ def render(
         num_rays, 1, 3
     ) * sample_distances.view(num_rays, num_samples_per_ray, 1)
     sample_dirs = ray_dirs.view(num_rays, 1, 3).repeat(1, num_samples_per_ray, 1)
-
-    # Get the density and color at each sample point
-    sample_densities, sample_colors = radiance(
+    sample_positions_and_dirs = torch.cat([
         sample_positions.view(num_rays * num_samples_per_ray, 3),
         sample_dirs.view(num_rays * num_samples_per_ray, 3),
-    )
-    sample_densities = sample_densities.view(num_rays, num_samples_per_ray)
-    sample_colors = sample_colors.view(num_rays, num_samples_per_ray, 3)
+    ], dim=1)
+
+    # Get the density and color at each sample point
+    sample_densities_and_colors = radiance(sample_positions_and_dirs)
+    sample_densities = sample_densities_and_colors[:, 0].view(num_rays, num_samples_per_ray)
+    sample_colors = sample_densities_and_colors[:, 1:].view(num_rays, num_samples_per_ray, 3)
 
     # Integrate the density and color along the ray
     mean_sample_separation = (z_far - z_near) / num_samples_per_ray
@@ -188,21 +189,24 @@ def show_image(image):
 
 if __name__ == "__main__":
 
-    def sphere_radiance(position, view_direction):
+    def sphere_radiance(position_and_view_direction):
         """
         `position` is (N, 3),
         `view_direction` is (N, 3).
 
-        Returns (N, 1) density and (N, 3) color
+        Returns (N, 4) density and color
         """
         center = torch.tensor([0.0, 0.0, -5.0])
         radius = 1.0
+        position = position_and_view_direction[:, :3]
         distance_to_surface = (
             torch.norm(position - center.view(1, 3), dim=1, keepdim=True) - radius
         )
         density = torch.clamp(torch.relu(-distance_to_surface), 0.0, 0.1) * 10
         color = torch.clamp(position - center.view(1, 3), 0, 1)
-        return (density, color)
+        return torch.cat([density, color], dim=1)
+    
+    # sphere_radiance(torch.tensor([[0.1, 0.0, -4.5, 0.0, 0.0, 1.0]]))
 
     renderer = ImageRenderer(
         sphere_radiance,
