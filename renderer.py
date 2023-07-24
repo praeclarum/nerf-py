@@ -177,22 +177,6 @@ def get_ray_dirs(cam_ray_dir, camera_local_to_world):
     return ray_dir
 
 
-def sphere_radiance(position, view_direction):
-    """
-    position is (N, 3)
-    view_direction is (N, 3)
-    returns (N, 1) density and (N, 3) color
-    """
-    center = torch.tensor([0.0, 0.0, -5.0])
-    radius = 1.0
-    distance_to_surface = (
-        torch.norm(position - center.view(1, 3), dim=1, keepdim=True) - radius
-    )
-    density = torch.clamp(torch.relu(-distance_to_surface), 0.0, 0.1) * 10
-    color = torch.clamp(position - center.view(1, 3), 0, 1)
-    return (density, color)
-
-
 def show_image(image):
     fig, ax = plt.subplots()
     ax.imshow(image)
@@ -203,6 +187,23 @@ def show_image(image):
 
 
 if __name__ == "__main__":
+
+    def sphere_radiance(position, view_direction):
+        """
+        `position` is (N, 3),
+        `view_direction` is (N, 3).
+
+        Returns (N, 1) density and (N, 3) color
+        """
+        center = torch.tensor([0.0, 0.0, -5.0])
+        radius = 1.0
+        distance_to_surface = (
+            torch.norm(position - center.view(1, 3), dim=1, keepdim=True) - radius
+        )
+        density = torch.clamp(torch.relu(-distance_to_surface), 0.0, 0.1) * 10
+        color = torch.clamp(position - center.view(1, 3), 0, 1)
+        return (density, color)
+
     renderer = ImageRenderer(
         sphere_radiance,
         700,
