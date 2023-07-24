@@ -17,4 +17,4 @@ class ImageInfo():
         ax.patch.set_visible(False)
         plt.show()
 
-ImageInfo('/Users/fak/work/Captures 3/Jul 23, 2023 at 8:59:51 PM', 'IMG_0001').show()
+# ImageInfo('/Users/fak/work/Captures 3/Jul 23, 2023 at 8:59:51 PM', 'IMG_0001').show()

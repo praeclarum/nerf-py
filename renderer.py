@@ -180,7 +180,7 @@ def get_ray_dirs(cam_ray_dir, camera_local_to_world):
 
 def show_image(image):
     fig, ax = plt.subplots()
-    ax.imshow(image)
+    ax.imshow(image.detach().numpy())
     ax.axis("off")  # remove the axis
     fig.patch.set_visible(False)
     ax.patch.set_visible(False)
