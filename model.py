@@ -3,16 +3,17 @@ from torch import nn
 
 
 class DeepNeRF(nn.Module):
-    def __init__(self, hidden_dim=256):
+    def __init__(self, hidden_dim=256, include_view_direction=True):
         super().__init__()
-        self.input1 = nn.Linear(6, hidden_dim)
+        input_dim = 6 if include_view_direction else 3
+        self.input1 = nn.Linear(input_dim, hidden_dim)
         self.mlp1 = nn.Sequential(
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
         )
-        self.input2 = nn.Linear(6, hidden_dim)
+        self.input2 = nn.Linear(input_dim, hidden_dim)
         self.mlp2 = nn.Sequential(
             nn.ReLU(),
             nn.Linear(hidden_dim * 2, hidden_dim),
