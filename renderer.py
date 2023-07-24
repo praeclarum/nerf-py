@@ -6,7 +6,8 @@ import matplotlib.pyplot as plt
 
 class ImageRenderer(nn.Module):
     def __init__(
-        self, radiance, width, height, horizontal_fov, z_near, z_far, num_samples_per_ray
+        self, radiance, width, height, horizontal_fov, z_near, z_far, num_samples_per_ray,
+        device
     ):
         """
         Render a `radiance` function
@@ -31,7 +32,7 @@ class ImageRenderer(nn.Module):
         self.z_near = z_near
         self.z_far = z_far
         self.num_samples_per_ray = num_samples_per_ray
-        self.cam_ray_dirs = get_cam_ray_dirs(width, height, horizontal_fov)
+        self.cam_ray_dirs = get_cam_ray_dirs(width, height, horizontal_fov, device)
 
     def forward(self, camera_local_to_world):
         return render(
@@ -76,7 +77,8 @@ def render(
 
     # Get the sample points along each ray
     sample_distances = sample_binned_uniform_distances(
-        z_near, z_far, num_rays, num_samples_per_ray
+        z_near, z_far, num_rays, num_samples_per_ray,
+        device=ray_origins.device
     )
     sample_positions = ray_origins + ray_dirs.view(
         num_rays, 1, 3
@@ -165,29 +167,31 @@ def alpha_composite_rgba(
     return composite_rgba
 
 
-def sample_binned_uniform_distances(t_min, t_max, num_rays, num_samples_per_ray):
+def sample_binned_uniform_distances(t_min, t_max, num_rays, num_samples_per_ray, device):
     """
     Sample distances along rays in a uniform grid
     """
     dt = t_max - t_min
     bin_dt = dt / num_samples_per_ray
-    u = torch.rand((num_rays, num_samples_per_ray)) * bin_dt
-    t = torch.linspace(t_min, t_max - bin_dt, num_samples_per_ray) + u
+    u = torch.rand((num_rays, num_samples_per_ray), device=device) * bin_dt
+    t = torch.linspace(t_min, t_max - bin_dt, num_samples_per_ray, device=device) + u
     return t
 
 
-def get_cam_ray_dirs(width, height, horizontal_fov):
+def get_cam_ray_dirs(width, height, horizontal_fov, device):
     """
     Get the intrinsic camera ray directions
     """
     # compute ray directions for every pixel in camera space
     horizontal_fov_radians = horizontal_fov
     rot_y_rads = torch.linspace(
-        -horizontal_fov_radians / 2.0, horizontal_fov_radians / 2.0, width
+        -horizontal_fov_radians / 2.0, horizontal_fov_radians / 2.0, width,
+        device=device
     )
     vertical_fov_radians = horizontal_fov_radians * height / width
     rot_x_rads = torch.linspace(
-        vertical_fov_radians / 2.0, -vertical_fov_radians / 2.0, height
+        vertical_fov_radians / 2.0, -vertical_fov_radians / 2.0, height,
+        device=device
     )
     rot_y_rads = rot_y_rads.view(1, width).repeat(height, 1)
     rot_x_rads = rot_x_rads.view(height, 1).repeat(1, width)
