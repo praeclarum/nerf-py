@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 class ImageRenderer(nn.Module):
     def __init__(
-        self, radiance, width, height, vertical_fov, z_near, z_far, num_samples_per_ray
+        self, radiance, width, height, horizontal_fov, z_near, z_far, num_samples_per_ray
     ):
         """
         Render a `radiance` function
@@ -18,6 +18,8 @@ class ImageRenderer(nn.Module):
 
         `z_near` and `z_far` are the near and far clipping planes.
 
+        `horizontal_fov` is the horizontal field of view in radians.
+
         `num_samples_per_ray` is the number of random points to sample when
         calculating the output color.
         """
@@ -25,11 +27,11 @@ class ImageRenderer(nn.Module):
         self.radiance = radiance
         self.width = width
         self.height = height
-        self.vertical_fov = vertical_fov
+        self.horizontal_fov = horizontal_fov
         self.z_near = z_near
         self.z_far = z_far
         self.num_samples_per_ray = num_samples_per_ray
-        self.cam_ray_dirs = get_cam_ray_dirs(width, height, vertical_fov)
+        self.cam_ray_dirs = get_cam_ray_dirs(width, height, horizontal_fov)
 
     def forward(self, camera_local_to_world):
         return render(
@@ -92,17 +94,48 @@ def render(
 
     # Integrate the density and color along the ray
     mean_sample_separation = (z_far - z_near) / num_samples_per_ray
-    colors = alpha_composite(
+    colors = alpha_composite_rgb(
         sample_densities,
         sample_colors,
         mean_sample_separation,
         sample_distances.view(num_rays, num_samples_per_ray),
     )
-    colors = colors.view(height, width, 4)
+    colors = colors.view(height, width, 3)
     return colors
 
 
-def alpha_composite(
+def alpha_composite_rgb(
+    sample_densities, sample_colors, mean_sample_separation, sample_distances
+):
+    """
+    Composite colors using alpha blending
+
+    sample_density shape (num_rays, num_samples_per_ray)
+    sample_colors shape (num_rays, num_samples_per_ray, 3)
+    mean_sample_separation is a scalar
+    sample_distances shape (num_rays, num_samples_per_ray)
+    """
+    num_rays, num_samples_per_ray = sample_densities.shape
+    sample_separations = sample_distances[:, 1:] - sample_distances[:, :-1]
+    scaled_densities = sample_densities[:, :-1] * sample_separations
+    alphas = 1.0 - torch.exp(-scaled_densities)
+    composite_alpha = 1.0 - torch.exp(
+        -sample_densities[:, -1:] * mean_sample_separation
+    )
+    composite_color = composite_alpha * sample_colors[:, -1]
+    for i in range(num_samples_per_ray - 2, -1, -1):
+        alpha_i = torch.unsqueeze(alphas[:, i], 1)
+        one_minus_alpha_i = 1.0 - alpha_i
+        composite_color = (
+            alpha_i * sample_colors[:, i, :] + one_minus_alpha_i * composite_color
+        )
+        # composite_alpha = alpha_i + one_minus_alpha_i * composite_alpha
+    # composite_rgba = torch.cat([composite_color, composite_alpha], dim=1)
+    # return composite_rgba
+    return composite_color
+
+
+def alpha_composite_rgba(
     sample_densities, sample_colors, mean_sample_separation, sample_distances
 ):
     """
@@ -143,17 +176,18 @@ def sample_binned_uniform_distances(t_min, t_max, num_rays, num_samples_per_ray)
     return t
 
 
-def get_cam_ray_dirs(width, height, vertical_fov_radians):
+def get_cam_ray_dirs(width, height, horizontal_fov):
     """
     Get the intrinsic camera ray directions
     """
     # compute ray directions for every pixel in camera space
-    rot_x_rads = torch.linspace(
-        vertical_fov_radians / 2.0, -vertical_fov_radians / 2.0, height
-    )
-    horizontal_fov_radians = vertical_fov_radians * width / height
+    horizontal_fov_radians = horizontal_fov
     rot_y_rads = torch.linspace(
         -horizontal_fov_radians / 2.0, horizontal_fov_radians / 2.0, width
+    )
+    vertical_fov_radians = horizontal_fov_radians * height / width
+    rot_x_rads = torch.linspace(
+        vertical_fov_radians / 2.0, -vertical_fov_radians / 2.0, height
     )
     rot_y_rads = rot_y_rads.view(1, width).repeat(height, 1)
     rot_x_rads = rot_x_rads.view(height, 1).repeat(1, width)
@@ -212,12 +246,12 @@ if __name__ == "__main__":
         sphere_radiance,
         700,
         500,
-        math.radians(60.0),
+        horizontal_fov=math.radians(60.0),
         z_near=3.0,
         z_far=7.0,
         num_samples_per_ray=11,
     )
-    for angle in [-30, 0, 30]:
+    for angle in [-20, 0, 20]:
         y_rot_rads = math.radians(angle)
         camera_local_to_world = torch.eye(4)
         camera_local_to_world[0, 0] = math.cos(y_rot_rads)
