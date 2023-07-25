@@ -66,10 +66,10 @@ def sample(crop_size=384):
     for sample_i in range(4):
         cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
         depth_samples = [y.detach().cpu()]
-        for depth in [0.0, -0.25, 0.25]:
+        for depth in [0.0, -0.1, 0.1]:
             camera_local_to_world = torch.clone(cam_transform)
             camera_local_to_world[2, 3] += depth
-            y_pred = render(cam_ray_dirs, camera_local_to_world).detach().cpu()
+            y_pred = render(cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64).detach().cpu()
             depth_samples.append(y_pred)
         samples.append(torch.cat(depth_samples, dim=1))
     nerf_model.train()
@@ -81,7 +81,7 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def train_step(crop_size=128, num_accum=16):
+def train_step(crop_size=32, num_accum=64):
     global num_trained_steps
     optimizer.zero_grad()
     total_loss = 0.0
@@ -124,7 +124,7 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
-images = data.load_images(images_dir, 128, device)
+images = data.load_images(images_dir, 256, device)
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction, device=device).to(device)
