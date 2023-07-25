@@ -98,9 +98,14 @@ def train_step(crop_size=384, num_accum=8):
 
 def train_loop(num_steps):
     p = tqdm.tqdm(range(num_steps))
+    loss_sum = 0.0
+    loss_count = 0
     for i in p:
         loss = train_step()
-        p.set_description(f"loss={loss:.4f}")
+        loss_sum += loss
+        loss_count += 1
+        average_loss = loss_sum / loss_count
+        p.set_description(f"loss={average_loss:.4f}")
     # checkpoint()
     sample()
 
