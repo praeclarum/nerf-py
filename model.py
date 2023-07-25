@@ -5,15 +5,26 @@ from torch import nn
 class MildenhallNeRF(nn.Module):
     def __init__(
         self,
-        hidden_dim=128,
+        hidden_dim=64,
         include_view_direction=True,
-        num_density_layers=2,
+        num_density_layers=1,
         num_color_layers=2,
+        device="cpu",
     ):
         super().__init__()
-        input_dim = 6 if include_view_direction else 3
+        point_levels = 16
+        point_features = 2
+        self.point_encoder = PointEncoder3(
+            bb_min=torch.tensor([-5, -5, -5], dtype=torch.float32, device=device),
+            bb_max=torch.tensor([5, 5, 5], dtype=torch.float32, device=device),
+            number_of_levels=point_levels,
+            max_entries_per_level=2**14,
+            feature_dim=point_features,
+            device=device)
+        point_dim = point_levels * point_features
+        input_dim = point_dim + (3 if include_view_direction else 0)
         density_layers = []
-        density_layers.append(nn.Linear(3, hidden_dim))
+        density_layers.append(nn.Linear(point_dim, hidden_dim))
         density_layers.append(nn.ReLU())
         for i in range(num_density_layers - 2):
             density_layers.append(nn.Linear(hidden_dim, hidden_dim))
@@ -21,7 +32,7 @@ class MildenhallNeRF(nn.Module):
         density_layers.append(nn.Linear(hidden_dim, hidden_dim // 4))
         self.density_mlp = nn.Sequential(*density_layers)
         color_layers = []
-        color_layers.append(nn.Linear(input_dim + hidden_dim // 4 - 1, hidden_dim))
+        color_layers.append(nn.Linear(input_dim + hidden_dim // 4, hidden_dim))
         color_layers.append(nn.ReLU())
         for i in range(num_color_layers - 2):
             color_layers.append(nn.Linear(hidden_dim, hidden_dim))
@@ -30,10 +41,12 @@ class MildenhallNeRF(nn.Module):
         self.color_mlp = nn.Sequential(*color_layers)
 
     def forward(self, points_and_view_directions):
-        h = self.density_mlp(points_and_view_directions[:, :3])
+        points = self.point_encoder(points_and_view_directions[:, :3])
+        view_directions = points_and_view_directions[:, 3:]
+        h = self.density_mlp(points)
         density = torch.sigmoid(h[:, 0]).unsqueeze(-1)
-        h = torch.nn.functional.relu(h[:, 1:])
-        h = torch.cat([points_and_view_directions, h], dim=-1)
+        h_rest = torch.nn.functional.relu(h[:, 1:])
+        h = torch.cat([density, h_rest, points, view_directions], dim=-1)
         h = self.color_mlp(h)
         color = torch.sigmoid(h)
         density_and_color = torch.cat([density, color], dim=-1)

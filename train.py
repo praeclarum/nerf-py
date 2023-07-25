@@ -127,7 +127,7 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 images = data.load_images(images_dir, 128, device)
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
-nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction).to(device)
+nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction, device=device).to(device)
 
 num_trained_steps = 0
 optimizer = torch.optim.Adam(nerf_model.parameters(), lr=1e-2)
