@@ -107,7 +107,7 @@ def load_images(images_dir, max_size, device):
         if len(poses) != len(images):
             print(f"WARNING: len(poses) != len(images) {len(poses)} != {len(images)}")
         for i in range(len(images)):
-            image.extrinsics = load_json_matrix(poses[i], device)
+            images[i].extrinsics = load_json_matrix(poses[i], device)
             # print(f"Extrinsics {i}:\n  {image.extrinsics.device}\n  {image.extrinsics}")
     return images
 
