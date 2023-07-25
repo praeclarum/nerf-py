@@ -37,11 +37,13 @@ def render(cam_ray_dirs, cam_transform):
     )
 
 
-def get_train_batch(crop_size=256):
-    height, width = train_image.shape[:2]
+def get_train_batch(crop_size):
+    image = images[np.random.randint(0, len(images))]
+    image_tensor = image.image_tensor
+    height, width = image_tensor.shape[:2]
     crop_y_index = np.random.randint(0, height - crop_size)
     crop_x_index = np.random.randint(0, width - crop_size)
-    y = train_image[
+    y = image_tensor[
         crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
     ]
     cam_ray_dirs = image.cam_ray_dirs[
@@ -51,14 +53,14 @@ def get_train_batch(crop_size=256):
     return cam_ray_dirs, cam_transform, y
 
 
-def sample():
+def sample(crop_size=384):
     global num_trained_steps
     samples = []
     nerf_model.eval()
     for sample_i in range(4):
-        cam_ray_dirs, cam_transform, y = get_train_batch()
+        cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
         depth_samples = [y.detach().cpu()]
-        for depth in [-0.25, 0.0, 0.25]:
+        for depth in [0.0, -0.25, 0.25]:
             camera_local_to_world = torch.clone(cam_transform)
             camera_local_to_world[2, 3] += depth
             y_pred = render(cam_ray_dirs, camera_local_to_world).detach().cpu()
@@ -71,10 +73,10 @@ def sample():
     Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_path)
 
 
-def train_step():
+def train_step(crop_size=384):
     global num_trained_steps
     optimizer.zero_grad()
-    cam_ray_dirs, cam_transform, y = get_train_batch()
+    cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
     y_pred = render(cam_ray_dirs, cam_transform)
     loss = torch.nn.functional.mse_loss(y_pred, y)
     loss.backward()
@@ -88,7 +90,7 @@ def train_loop(num_steps):
     for i in p:
         loss = train_step()
         p.set_description(f"loss={loss:.4f}")
-    checkpoint()
+    # checkpoint()
     sample()
 
 
@@ -101,11 +103,10 @@ include_view_direction = False
 # image = data.ImageInfo(images_dir, "IMG_0001", 256)
 
 images_dir = "/Volumes/home/Data/datasets/nerf/eli2"
-image = data.ImageInfo(images_dir, "Frame0", 128, device)
-
-# image.show()
-print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
-train_image = image.image_tensor.to(device)
+# image = data.ImageInfo(images_dir, "Frame0", 128, device)
+# print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
+# train_image = image.image_tensor.to(device)
+images = data.load_images(images_dir, 128, device)
 
 nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 
@@ -125,6 +126,7 @@ for code_file in code_files:
 
 sample()
 
+print(f"Training...")
 train_loop(2)
 train_loop(64)
 train_loop(256)

@@ -1,9 +1,11 @@
 import os
+import glob
 import torch
 import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 import json
+import tqdm
 
 import renderer
 
@@ -46,7 +48,7 @@ class ImageInfo:
         # print(f"Extrinsics:\n{self.extrinsics}")
         self.width, self.height = self.image.size
         image_ar = np.array(self.image)
-        self.image_tensor = torch.tensor(image_ar) / 255.0
+        self.image_tensor = torch.tensor(image_ar, device=device) / 255.0
 
     def show(self):
         fig, ax = plt.subplots()
@@ -65,7 +67,19 @@ def load_matrix(path, device):
     return matrix
 
 
+def load_images(images_dir, max_size, device):
+    print(f"Loading images from {images_dir}")
+    image_paths = glob.glob(f"{images_dir}/*_Image.jpg")
+    images = []
+    for image_path in tqdm.tqdm(image_paths):
+        image_id = os.path.basename(image_path).split("_")[0]
+        image = ImageInfo(images_dir, image_id, max_size, device)
+        images.append(image)
+    return images
+
+
 if __name__ == "__main__":
     images_dir = "/Volumes/home/Data/datasets/nerf/eli2"
-    ImageInfo(images_dir, "Frame0", 128, "cpu").show()
+    images = load_images(images_dir, 128, "cpu")
+    images[0].show()
     # ImageInfo('/home/fak/Data/datasets/nerf/eli2', 'Frame0_Image', 128).show()
