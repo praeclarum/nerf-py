@@ -79,12 +79,14 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def train_step(crop_size=384):
+def train_step(crop_size=384, num_accum=8):
     global num_trained_steps
     optimizer.zero_grad()
-    cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
-    y_pred = render(cam_ray_dirs, cam_transform)
-    loss = torch.nn.functional.mse_loss(y_pred, y)
+    loss = 0.0
+    for i in range(num_accum):
+        cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
+        y_pred = render(cam_ray_dirs, cam_transform)
+        loss = loss + torch.nn.functional.mse_loss(y_pred, y) / num_accum
     loss.backward()
     optimizer.step()
     num_trained_steps += 1
