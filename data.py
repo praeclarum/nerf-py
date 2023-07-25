@@ -12,7 +12,7 @@ import renderer
 
 class ImageInfo:
     def __init__(self, images_dir, image_id, max_size, device):
-        image_path = f"{images_dir}/{image_id}_Image.jpg"
+        image_path = f"{images_dir}/{image_id}.jpg"
         self.image = Image.open(image_path).convert("RGB")
         if self.image.width > max_size or self.image.height > max_size:
             max_dim = max(self.image.width, self.image.height)
@@ -29,10 +29,8 @@ class ImageInfo:
         intrinsics_json_path = f"{images_dir}/{image_id}_intrinsics.json"
         if os.path.exists(intrinsics_json_path):
             intrinsics = json.load(open(intrinsics_json_path))
-            self.horizontal_fov_degrees = intrinsics["horizontalFieldOfViewDegrees"][0]
-            self.cam_ray_dirs = renderer.get_cam_ray_dirs(
-                self.width, self.height, self.horizontal_fov_degrees, device
-            )
+            self.intrinsics = load_json_matrix(intrinsics, device)
+            resolution = intrinsics["refSize"]
         elif os.path.exists(intrinsics_txt_path):
             self.intrinsics = load_matrix(intrinsics_txt_path, device)
             resolution = [
@@ -41,15 +39,15 @@ class ImageInfo:
                 .readlines()[0]
                 .split()
             ]
-            if self.image.width != resolution[0] or self.image.height != resolution[1]:
-                # print(
-                #     f"RESOLUTION MISMATCH {resolution} vs {self.image.width} {self.image.height}"
-                # )
-                scale = self.image.width / resolution[0]
-                self.intrinsics *= scale
-            self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
-                self.image.width, self.image.height, self.intrinsics, device
-            )
+        if self.image.width != resolution[0] or self.image.height != resolution[1]:
+            # print(
+            #     f"RESOLUTION MISMATCH {resolution} vs {self.image.width} {self.image.height}"
+            # )
+            scale = self.image.width / resolution[0]
+            self.intrinsics *= scale
+        self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
+            self.image.width, self.image.height, self.intrinsics, device
+        )
         if os.path.exists(extrinsics_txt_path):
             self.extrinsics = load_matrix(extrinsics_txt_path, device)
         # print(f"Intrinsics:\n{self.intrinsics}")
@@ -68,6 +66,26 @@ class ImageInfo:
         plt.close()
 
 
+def load_json_matrix(json_obj, device):
+    col0 = torch.tensor(json_obj["matrixCol0"], device=device)
+    col1 = torch.tensor(json_obj["matrixCol1"], device=device)
+    col2 = torch.tensor(json_obj["matrixCol2"], device=device)
+    if "matrixCol3" not in json_obj:
+        col3 = torch.tensor([0.0, 0.0, 0.0, 1.0], device=device)
+    else:
+        col3 = torch.tensor(json_obj["matrixCol3"], device=device)
+    if col0.shape[0] == 3:
+        col0 = torch.cat([col0, torch.tensor([0.0], device=device)])
+    if col1.shape[0] == 3:
+        col1 = torch.cat([col1, torch.tensor([0.0], device=device)])
+    if col2.shape[0] == 3:
+        col2 = torch.cat([col2, torch.tensor([0.0], device=device)])
+    if col3.shape[0] == 3:
+        col3 = torch.cat([col3, torch.tensor([1.0], device=device)])
+    matrix = torch.stack([col0, col1, col2, col3], dim=1)
+    return matrix
+
+
 def load_matrix(path, device):
     lines = open(path).readlines()[:4]
     rows = [list(map(float, line.split()[1:])) for line in lines]
@@ -77,10 +95,10 @@ def load_matrix(path, device):
 
 def load_images(images_dir, max_size, device):
     print(f"Loading images from {images_dir}")
-    image_paths = glob.glob(f"{images_dir}/*_Image.jpg")
+    image_paths = glob.glob(f"{images_dir}/*.jpg")
     images = []
     for image_path in tqdm.tqdm(image_paths):
-        image_id = os.path.basename(image_path).split("_")[0]
+        image_id = os.path.basename(image_path).replace(".jpg", "")
         image = ImageInfo(images_dir, image_id, max_size, device)
         images.append(image)
     return images
@@ -98,7 +116,7 @@ def get_cam_bounding_box(images):
 
 
 if __name__ == "__main__":
-    images_dir = "/Volumes/home/Data/datasets/nerf/eli2"
+    images_dir = "/Volumes/home/Data/datasets/nerf/piano1"
     images = load_images(images_dir, 128, "cpu")
     get_cam_bounding_box(images)
     images[0].show()

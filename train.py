@@ -81,7 +81,7 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def train_step(crop_size=32, num_accum=64):
+def train_step(crop_size=128, num_accum=16):
     global num_trained_steps
     optimizer.zero_grad()
     total_loss = 0.0
@@ -118,13 +118,13 @@ include_view_direction = False
 # images_dir = "/home/fak/Data/datasets/nerf/desk1"
 # image = data.ImageInfo(images_dir, "IMG_0001", 256)
 
-dataset_name = "eli2"
+dataset_name = "piano1"
 
 images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
-images = data.load_images(images_dir, 256, device)
+images = data.load_images(images_dir, 128, device)
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction, device=device).to(device)
@@ -156,5 +156,6 @@ print(f"Training {run_id}...")
 train_loop(2)
 train_loop(64)
 train_loop(128)
+train_loop(256)
 for i in range(32):
-    train_loop(256)
+    train_loop(512)
