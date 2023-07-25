@@ -25,13 +25,13 @@ def checkpoint():
     )
 
 
-def render(cam_ray_dirs, cam_transform):
+def render(cam_ray_dirs, cam_transform, num_samples_per_ray=16):
     return renderer.render(
         nerf_model,
         cam_ray_dirs,
         z_near=0.1,
-        z_far=5.0,
-        num_samples_per_ray=11,
+        z_far=4.0,
+        num_samples_per_ray=num_samples_per_ray,
         camera_local_to_world=cam_transform,
         include_view_direction=include_view_direction,
     )
@@ -45,10 +45,12 @@ def get_train_batch(crop_size):
         crop_y_index = np.random.randint(0, height - crop_size)
         crop_x_index = np.random.randint(0, width - crop_size)
         y = image_tensor[
-            crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
+            crop_y_index : crop_y_index + crop_size,
+            crop_x_index : crop_x_index + crop_size,
         ]
         cam_ray_dirs = image.cam_ray_dirs[
-            crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
+            crop_y_index : crop_y_index + crop_size,
+            crop_x_index : crop_x_index + crop_size,
         ]
     else:
         y = image_tensor
@@ -119,7 +121,8 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # train_image = image.image_tensor.to(device)
 images = data.load_images(images_dir, 128, device)
 
-nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
+# nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
+nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction).to(device)
 
 num_trained_steps = 0
 optimizer = torch.optim.Adam(nerf_model.parameters(), lr=1e-2)
@@ -142,6 +145,7 @@ sample()
 print(f"Training...")
 train_loop(2)
 train_loop(64)
+train_loop(128)
 train_loop(256)
 train_loop(512)
 train_loop(1024)
