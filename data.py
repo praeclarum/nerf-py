@@ -14,6 +14,8 @@ class ImageInfo:
     def __init__(self, images_dir, image_id, max_size, device):
         image_path = f"{images_dir}/{image_id}_Image.jpg"
         self.image = Image.open(image_path).convert("RGB")
+        if self.image.width > max_size or self.image.height > max_size:
+            self.image.thumbnail((max_size, max_size), Image.ANTIALIAS)
         self.horizontal_fov_degrees = 62.3311
         self.intrinsics = torch.eye(4)
         self.extrinsics = torch.eye(4)
@@ -35,10 +37,11 @@ class ImageInfo:
                 .split()
             ]
             if self.image.width != resolution[0] or self.image.height != resolution[1]:
-                print(
-                    f"RESOLUTION MISMATCH {resolution} vs {self.image.width} {self.image.height}"
-                )
-                self.image = self.image.resize((resolution[0], resolution[1]))
+                # print(
+                #     f"RESOLUTION MISMATCH {resolution} vs {self.image.width} {self.image.height}"
+                # )
+                scale = self.image.width / resolution[0]
+                self.intrinsics *= scale
             self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
                 self.image.width, self.image.height, self.intrinsics, device
             )

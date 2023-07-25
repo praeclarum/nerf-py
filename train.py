@@ -41,14 +41,18 @@ def get_train_batch(crop_size):
     image = images[np.random.randint(0, len(images))]
     image_tensor = image.image_tensor
     height, width = image_tensor.shape[:2]
-    crop_y_index = np.random.randint(0, height - crop_size)
-    crop_x_index = np.random.randint(0, width - crop_size)
-    y = image_tensor[
-        crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
-    ]
-    cam_ray_dirs = image.cam_ray_dirs[
-        crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
-    ]
+    if width > crop_size or height > crop_size:
+        crop_y_index = np.random.randint(0, height - crop_size)
+        crop_x_index = np.random.randint(0, width - crop_size)
+        y = image_tensor[
+            crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
+        ]
+        cam_ray_dirs = image.cam_ray_dirs[
+            crop_y_index : crop_y_index + crop_size, crop_x_index : crop_x_index + crop_size
+        ]
+    else:
+        y = image_tensor
+        cam_ray_dirs = image.cam_ray_dirs
     cam_transform = image.extrinsics
     return cam_ray_dirs, cam_transform, y
 
@@ -70,7 +74,9 @@ def sample(crop_size=384):
     # renderer.show_image(y_pred)
     y_pred = torch.cat(samples, dim=0)
     out_path = f"{output_dir}/sample_{num_trained_steps:04d}.png"
-    Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_path)
+    out_tmp_path = f"{tmp_dir}/sample_{num_trained_steps:04d}.png"
+    Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_tmp_path)
+    os.rename(out_tmp_path, out_path)
 
 
 def train_step(crop_size=384):
@@ -102,7 +108,9 @@ include_view_direction = False
 # images_dir = "/home/fak/Data/datasets/nerf/desk1"
 # image = data.ImageInfo(images_dir, "IMG_0001", 256)
 
-images_dir = "/Volumes/home/Data/datasets/nerf/eli2"
+dataset_name = "eli2"
+
+images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
@@ -118,8 +126,10 @@ camera_local_to_world = torch.eye(4, device=device)
 
 run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
-output_dir = f"/home/fak/nn/Data/generated/nerf/desk1/{run_id}"
+output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
+tmp_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/tmp"
+os.makedirs(tmp_dir, exist_ok=True)
 code_files = glob.glob(f"{os.path.dirname(__file__)}/*.py")
 for code_file in code_files:
     shutil.copy(code_file, output_dir)
@@ -132,5 +142,5 @@ train_loop(64)
 train_loop(256)
 train_loop(512)
 train_loop(1024)
-for i in range(16):
+for i in range(32):
     train_loop(2048)
