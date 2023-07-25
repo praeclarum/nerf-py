@@ -22,8 +22,8 @@ class ImageInfo:
                 resample=Image.BICUBIC,
             )
         self.horizontal_fov_degrees = 62.3311
-        self.intrinsics = torch.eye(4)
-        self.extrinsics = torch.eye(4)
+        self.intrinsics = torch.eye(4, device=device)
+        self.extrinsics = torch.eye(4, device=device)
         intrinsics_txt_path = f"{images_dir}/{image_id}_Intrinsics.txt"
         extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         intrinsics_json_path = f"{images_dir}/{image_id}_intrinsics.json"
@@ -95,12 +95,20 @@ def load_matrix(path, device):
 
 def load_images(images_dir, max_size, device):
     print(f"Loading images from {images_dir}")
-    image_paths = glob.glob(f"{images_dir}/*.jpg")
+    image_paths = sorted(glob.glob(f"{images_dir}/*.jpg"))
     images = []
     for image_path in tqdm.tqdm(image_paths):
         image_id = os.path.basename(image_path).replace(".jpg", "")
         image = ImageInfo(images_dir, image_id, max_size, device)
         images.append(image)
+    poses_path = images_dir + "/poses.json"
+    if os.path.exists(poses_path):
+        poses = json.load(open(poses_path))
+        if len(poses) != len(images):
+            print(f"WARNING: len(poses) != len(images) {len(poses)} != {len(images)}")
+        for i in range(len(images)):
+            image.extrinsics = load_json_matrix(poses[i], device)
+            # print(f"Extrinsics {i}:\n  {image.extrinsics.device}\n  {image.extrinsics}")
     return images
 
 
