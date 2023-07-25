@@ -82,15 +82,16 @@ def sample(crop_size=384):
 def train_step(crop_size=384, num_accum=8):
     global num_trained_steps
     optimizer.zero_grad()
-    loss = 0.0
+    total_loss = 0.0
     for i in range(num_accum):
         cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
         y_pred = render(cam_ray_dirs, cam_transform)
-        loss = loss + torch.nn.functional.mse_loss(y_pred, y) / num_accum
-    loss.backward()
+        loss = torch.nn.functional.mse_loss(y_pred, y) / num_accum
+        loss.backward()
+        total_loss += loss.detach().cpu()
     optimizer.step()
     num_trained_steps += 1
-    return loss.detach().cpu().tolist()
+    return total_loss
 
 
 def train_loop(num_steps):
