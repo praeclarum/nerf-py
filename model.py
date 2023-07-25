@@ -26,7 +26,7 @@ class MildenhallNeRF(nn.Module):
         density_layers = []
         density_layers.append(nn.Linear(point_dim, hidden_dim))
         density_layers.append(nn.ReLU())
-        for i in range(num_density_layers - 2):
+        for i in range(num_density_layers - 1):
             density_layers.append(nn.Linear(hidden_dim, hidden_dim))
             density_layers.append(nn.ReLU())
         density_layers.append(nn.Linear(hidden_dim, hidden_dim // 4))
@@ -34,7 +34,7 @@ class MildenhallNeRF(nn.Module):
         color_layers = []
         color_layers.append(nn.Linear(input_dim + hidden_dim // 4, hidden_dim))
         color_layers.append(nn.ReLU())
-        for i in range(num_color_layers - 2):
+        for i in range(num_color_layers - 1):
             color_layers.append(nn.Linear(hidden_dim, hidden_dim))
             color_layers.append(nn.ReLU())
         color_layers.append(nn.Linear(hidden_dim, 3))

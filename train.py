@@ -25,7 +25,7 @@ def checkpoint():
     )
 
 
-def render(cam_ray_dirs, cam_transform, num_samples_per_ray=16):
+def render(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
     return renderer.render(
         nerf_model,
         cam_ray_dirs,
@@ -81,7 +81,7 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def train_step(crop_size=384, num_accum=8):
+def train_step(crop_size=64, num_accum=8):
     global num_trained_steps
     optimizer.zero_grad()
     total_loss = 0.0
@@ -147,12 +147,9 @@ for code_file in code_files:
 
 sample()
 
-print(f"Training...")
+print(f"Training {run_id}...")
 train_loop(2)
 train_loop(64)
 train_loop(128)
-train_loop(256)
-train_loop(512)
-train_loop(1024)
 for i in range(32):
-    train_loop(2048)
+    train_loop(256)
