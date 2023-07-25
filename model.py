@@ -18,7 +18,7 @@ class MildenhallNeRF(nn.Module):
             bb_min=torch.tensor([-5, -5, -5], dtype=torch.float32, device=device),
             bb_max=torch.tensor([5, 5, 5], dtype=torch.float32, device=device),
             number_of_levels=point_levels,
-            max_entries_per_level=2**14,
+            max_entries_per_level=2**24 // point_features // point_levels,
             feature_dim=point_features,
             device=device)
         point_dim = point_levels * point_features

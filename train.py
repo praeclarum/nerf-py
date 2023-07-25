@@ -26,7 +26,7 @@ def checkpoint():
 
 
 def render(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
-    return renderer.render(
+    return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
         z_near=0.1,

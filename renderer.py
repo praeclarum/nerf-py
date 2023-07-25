@@ -4,7 +4,7 @@ from torch import nn
 import matplotlib.pyplot as plt
 
 
-def render(
+def render_image(
     radiance,
     cam_ray_dirs,
     z_near,
@@ -32,15 +32,45 @@ def render(
     where B is the batch size.
     """
     height, width, _ = cam_ray_dirs.shape
-    # print("CAM RAY DIRS", cam_ray_dirs.shape)
-    # print("WIDTH", width)
-    # print("HEIGHT", height)
-    # Determine the ray origin and direction for each pixel
     num_rays = width * height
     ray_origins = camera_local_to_world[:3, 3].view(1, 3)
+    ray_dirs = get_ray_dirs(cam_ray_dirs.reshape(num_rays, 3), camera_local_to_world)
+    ray_colors = render_rays(
+        radiance,
+        ray_origins=ray_origins,
+        ray_dirs=ray_dirs,
+        z_near=z_near,
+        z_far=z_far,
+        num_samples_per_ray=num_samples_per_ray,
+        include_view_direction=include_view_direction,
+    )
+    colors = ray_colors.view(height, width, 3)
+    return colors
 
-    ray_dirs = get_ray_dirs(cam_ray_dirs, camera_local_to_world)
 
+def render_rays(
+    radiance,
+    ray_origins,
+    ray_dirs,
+    z_near,
+    z_far,
+    num_samples_per_ray,
+    include_view_direction,
+) -> torch.Tensor:
+    """
+    Render a `radiance` function
+
+    `radiance(position_and_view_direction) -> density_and_color`
+
+    where `position_and_view_direction` are shaped (N, 6),
+    `density_and_color` is shaped (N, 4), and N is the radiance batch size.
+
+    * `ray_origins` is (num_rays or 1, 3) points
+    * `ray_dirs` is (num_rays, 3) normalized world vectors
+    * output is (num_rays, 3) colors
+    * `z_near` and `z_far` are the near and far clipping planes.
+    """
+    num_rays = ray_dirs.shape[0]
     # Get the sample points along each ray
     sample_distances = sample_binned_uniform_distances(
         z_near, z_far, num_rays, num_samples_per_ray, device=ray_origins.device
@@ -76,7 +106,6 @@ def render(
         mean_sample_separation,
         sample_distances.view(num_rays, num_samples_per_ray),
     )
-    colors = colors.view(height, width, 3)
     return colors
 
 
@@ -198,21 +227,21 @@ def get_intrinsic_cam_ray_dirs(width, height, intrinsics, device):
     return intrinsic_dirs.contiguous()
 
 
-def get_ray_dirs(cam_ray_dir, camera_local_to_world):
+def get_ray_dirs(cam_ray_dir: torch.Tensor, camera_local_to_world):
     """
     Transform camera intrinsic ray directions
     to world space directions
+
+    * `cam_ray_dir` is (N, 3)
+    * `camera_local_to_world` is (4, 4)
+    * output is (N, 3)
     """
-    height, width, _ = cam_ray_dir.shape
-    # print("GET HEIGHT", height)
-    # print("GET WIDTH", width)
     # print("GET CAM RAY DIR", cam_ray_dir.shape)
-    cam_ray_dir = cam_ray_dir.reshape(height * width, 3)
     cam_ray_dir = cam_ray_dir.unsqueeze(-1)
     # print("GET CAM RAY DIR V", cam_ray_dir.shape)
     camera_local_to_world_rot = camera_local_to_world[:3, :3]
     ray_dir = torch.matmul(camera_local_to_world_rot, cam_ray_dir)
-    ray_dir = ray_dir.view(height, width, 3)
+    ray_dir = ray_dir.squeeze(-1)
     return ray_dir
 
 
@@ -250,7 +279,7 @@ if __name__ == "__main__":
     cam_ray_dirs = get_fov_cam_ray_dirs(700, 500, math.radians(60.0), "cpu")
 
     def renderer(cam):
-        return render(
+        return render_image(
             sphere_radiance,
             cam_ray_dirs,
             z_near=3.0,
