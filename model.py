@@ -22,7 +22,7 @@ class MildenhallNeRF(nn.Module):
             feature_dim=point_features,
             device=device)
         point_dim = point_levels * point_features
-        input_dim = point_dim + (3 if include_view_direction else 0)
+        view_dim = 3 if include_view_direction else 0
         density_layers = []
         density_layers.append(nn.Linear(point_dim, hidden_dim))
         density_layers.append(nn.ReLU())
@@ -32,7 +32,7 @@ class MildenhallNeRF(nn.Module):
         density_layers.append(nn.Linear(hidden_dim, hidden_dim // 4))
         self.density_mlp = nn.Sequential(*density_layers)
         color_layers = []
-        color_layers.append(nn.Linear(input_dim + hidden_dim // 4, hidden_dim))
+        color_layers.append(nn.Linear(view_dim + hidden_dim // 4, hidden_dim))
         color_layers.append(nn.ReLU())
         for i in range(num_color_layers - 1):
             color_layers.append(nn.Linear(hidden_dim, hidden_dim))
@@ -46,7 +46,7 @@ class MildenhallNeRF(nn.Module):
         h = self.density_mlp(points)
         density = torch.sigmoid(h[:, 0]).unsqueeze(-1)
         h_rest = torch.nn.functional.relu(h[:, 1:])
-        h = torch.cat([density, h_rest, points, view_directions], dim=-1)
+        h = torch.cat([density, h_rest, view_directions], dim=-1)
         h = self.color_mlp(h)
         color = torch.sigmoid(h)
         density_and_color = torch.cat([density, color], dim=-1)
@@ -86,7 +86,12 @@ class PointEncoder3(nn.Module):
         self.number_of_levels = number_of_levels
         self.max_entries_per_level = max_entries_per_level
         self.feature_dim = feature_dim
-        self.layer_embeddings = nn.ModuleList([nn.Embedding(max_entries_per_level, feature_dim) for _ in range(number_of_levels)])
+        embeddings = []
+        for i in range(number_of_levels):
+            embedding = nn.Embedding(max_entries_per_level, feature_dim)
+            nn.init.uniform_(embedding.weight.data, -1e-4, 1e-4)
+            embeddings.append(embedding)
+        self.layer_embeddings = nn.ModuleList(embeddings)
         n_min = coarsest_resolution
         n_max = finest_resolution
         self.b = torch.exp((torch.log(torch.tensor(n_max)) - torch.log(torch.tensor(n_min))) / (torch.tensor(number_of_levels) - 1)).tolist()

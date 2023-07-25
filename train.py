@@ -81,7 +81,7 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def train_step(crop_size=64, num_accum=8):
+def train_step(crop_size=128, num_accum=16):
     global num_trained_steps
     optimizer.zero_grad()
     total_loss = 0.0
@@ -130,8 +130,13 @@ images = data.load_images(images_dir, 128, device)
 nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction, device=device).to(device)
 
 num_trained_steps = 0
-optimizer = torch.optim.Adam(nerf_model.parameters(), lr=1e-2)
+optimizer = torch.optim.Adam(
+    nerf_model.parameters(),
+    betas=(0.9, 0.99),
+    eps=1e-15,
+    lr=1e-2)
 
+total_batch_size = 2**18 # = 262144
 
 camera_local_to_world = torch.eye(4, device=device)
 
