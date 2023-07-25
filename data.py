@@ -15,7 +15,12 @@ class ImageInfo:
         image_path = f"{images_dir}/{image_id}_Image.jpg"
         self.image = Image.open(image_path).convert("RGB")
         if self.image.width > max_size or self.image.height > max_size:
-            self.image.thumbnail((max_size, max_size), Image.ANTIALIAS)
+            max_dim = max(self.image.width, self.image.height)
+            scale = max_size / max_dim
+            self.image = self.image.resize(
+                (int(self.image.width * scale), int(self.image.height * scale)),
+                resample=Image.BICUBIC,
+            )
         self.horizontal_fov_degrees = 62.3311
         self.intrinsics = torch.eye(4)
         self.extrinsics = torch.eye(4)
@@ -81,8 +86,20 @@ def load_images(images_dir, max_size, device):
     return images
 
 
+def get_cam_bounding_box(images):
+    cam_positions = []
+    for image in images:
+        cam_pos = image.extrinsics[:3, 3]
+        cam_positions.append(cam_pos)
+    cam_positions = torch.stack(cam_positions, dim=0)
+    cam_min = torch.min(cam_positions, dim=0)[0]
+    cam_max = torch.max(cam_positions, dim=0)[0]
+    return cam_min, cam_max
+
+
 if __name__ == "__main__":
     images_dir = "/Volumes/home/Data/datasets/nerf/eli2"
     images = load_images(images_dir, 128, "cpu")
+    get_cam_bounding_box(images)
     images[0].show()
     # ImageInfo('/home/fak/Data/datasets/nerf/eli2', 'Frame0_Image', 128).show()
