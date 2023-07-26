@@ -25,7 +25,7 @@ def checkpoint():
     )
 
 
-def render(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
+def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
     return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
@@ -37,7 +37,47 @@ def render(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
     )
 
 
-def get_train_batch(crop_size):
+def render_rays(ray_origs, ray_dirs, num_samples_per_ray=12):
+    return renderer.render_rays(
+        nerf_model,
+        ray_origs=ray_origs,
+        ray_dirs=ray_dirs,
+        z_near=0.1,
+        z_far=4.0,
+        num_samples_per_ray=num_samples_per_ray,
+        include_view_direction=include_view_direction,
+    )
+
+
+def sample(crop_size=384):
+    global num_trained_steps
+    samples = []
+    nerf_model.eval()
+    for sample_i in range(4):
+        cam_ray_dirs, cam_transform, y = get_train_image(crop_size=crop_size)
+        depth_samples = [y.detach().cpu()]
+        for depth in [0.0, -0.1, 0.1]:
+            camera_local_to_world = torch.clone(cam_transform)
+            camera_local_to_world[2, 3] += depth
+            y_pred = (
+                render_image(
+                    cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64
+                )
+                .detach()
+                .cpu()
+            )
+            depth_samples.append(y_pred)
+        samples.append(torch.cat(depth_samples, dim=1))
+    nerf_model.train()
+    # renderer.show_image(y_pred)
+    y_pred = torch.cat(samples, dim=0)
+    out_path = f"{output_dir}/sample_{num_trained_steps:04d}.png"
+    out_tmp_path = f"{tmp_dir}/sample_{num_trained_steps:04d}.png"
+    Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_tmp_path)
+    os.rename(out_tmp_path, out_path)
+
+
+def get_train_image(crop_size):
     image = images[np.random.randint(0, len(images))]
     image_tensor = image.image_tensor
     height, width = image_tensor.shape[:2]
@@ -59,36 +99,31 @@ def get_train_batch(crop_size):
     return cam_ray_dirs, cam_transform, y
 
 
-def sample(crop_size=384):
-    global num_trained_steps
-    samples = []
-    nerf_model.eval()
-    for sample_i in range(4):
-        cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
-        depth_samples = [y.detach().cpu()]
-        for depth in [0.0, -0.1, 0.1]:
-            camera_local_to_world = torch.clone(cam_transform)
-            camera_local_to_world[2, 3] += depth
-            y_pred = render(cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64).detach().cpu()
-            depth_samples.append(y_pred)
-        samples.append(torch.cat(depth_samples, dim=1))
-    nerf_model.train()
-    # renderer.show_image(y_pred)
-    y_pred = torch.cat(samples, dim=0)
-    out_path = f"{output_dir}/sample_{num_trained_steps:04d}.png"
-    out_tmp_path = f"{tmp_dir}/sample_{num_trained_steps:04d}.png"
-    Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_tmp_path)
-    os.rename(out_tmp_path, out_path)
+def get_train_rays(batch_size):
+    num_images = image_color.shape[0]
+    height, width, _ = image_color[0].shape
+    batch_image_index = np.random.randint(0, num_images, size=batch_size)
+    batch_y = np.random.randint(0, height, size=batch_size)
+    batch_x = np.random.randint(0, width, size=batch_size)
+    batch_color = image_color[batch_image_index, batch_y, batch_x]
+    batch_ray_dir = image_ray_dir[batch_image_index, batch_y, batch_x]
+    batch_ray_orig = image_ray_dir[batch_image_index, batch_y, batch_x]
+    return batch_ray_orig, batch_ray_dir, batch_color
 
 
-def train_step(crop_size=128, num_accum=16):
+def train_step(crop_size=128, num_accum=1):
     global num_trained_steps
     optimizer.zero_grad()
     total_loss = 0.0
     for i in range(num_accum):
-        cam_ray_dirs, cam_transform, y = get_train_batch(crop_size=crop_size)
-        y_pred = render(cam_ray_dirs, cam_transform)
-        loss = torch.nn.functional.mse_loss(y_pred, y) / num_accum
+        ray_origs, ray_dirs, ray_colors = get_train_rays(batch_size=5)
+        ray_colors_pred = render_rays(ray_origs, ray_dirs)
+        loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors) / num_accum
+
+        # cam_ray_dirs, cam_transform, y = get_train_image(crop_size=crop_size)
+        # y_pred = render_image(cam_ray_dirs, cam_transform)
+        # loss = torch.nn.functional.mse_loss(y_pred, y) / num_accum
+
         loss.backward()
         total_loss += loss.detach().cpu()
     optimizer.step()
@@ -111,7 +146,8 @@ def train_loop(num_steps):
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f'Using device "{device}": {torch.cuda.get_device_name(device)}')
+device_name = "cpu" if device.type == "cpu" else torch.cuda.get_device_name(device)
+print(f'Using device "{device}": {device_name}')
 
 include_view_direction = False
 
@@ -125,18 +161,21 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
 images = data.load_images(images_dir, 128, device)
+image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
+image_ray_dir = torch.cat([image.cam_ray_dirs.unsqueeze(0) for image in images], dim=0)
+print(f"Ray dirs {image_ray_dir.shape}")
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
-nerf_model = model.MildenhallNeRF(include_view_direction=include_view_direction, device=device).to(device)
+nerf_model = model.MildenhallNeRF(
+    include_view_direction=include_view_direction, device=device
+).to(device)
 
 num_trained_steps = 0
 optimizer = torch.optim.Adam(
-    nerf_model.parameters(),
-    betas=(0.9, 0.99),
-    eps=1e-15,
-    lr=1e-2)
+    nerf_model.parameters(), betas=(0.9, 0.99), eps=1e-15, lr=1e-2
+)
 
-total_batch_size = 2**18 # = 262144
+total_batch_size = 2**18  # = 262144
 
 camera_local_to_world = torch.eye(4, device=device)
 

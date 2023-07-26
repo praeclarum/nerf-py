@@ -37,7 +37,7 @@ def render_image(
     ray_dirs = get_ray_dirs(cam_ray_dirs.reshape(num_rays, 3), camera_local_to_world)
     ray_colors = render_rays(
         radiance,
-        ray_origins=ray_origins,
+        ray_origs=ray_origins,
         ray_dirs=ray_dirs,
         z_near=z_near,
         z_far=z_far,
@@ -50,7 +50,7 @@ def render_image(
 
 def render_rays(
     radiance,
-    ray_origins,
+    ray_origs,
     ray_dirs,
     z_near,
     z_far,
@@ -73,12 +73,13 @@ def render_rays(
     num_rays = ray_dirs.shape[0]
     # Get the sample points along each ray
     sample_distances = sample_binned_uniform_distances(
-        z_near, z_far, num_rays, num_samples_per_ray, device=ray_origins.device
+        z_near, z_far, num_rays, num_samples_per_ray, device=ray_origs.device
     )
-    sample_positions = ray_origins + ray_dirs.view(
-        num_rays, 1, 3
-    ) * sample_distances.view(num_rays, num_samples_per_ray, 1)
-    sample_dirs = ray_dirs.view(num_rays, 1, 3).repeat(1, num_samples_per_ray, 1)
+    sample_distances = sample_distances.view(num_rays, num_samples_per_ray, 1)
+    ray_origs = ray_origs.unsqueeze(1)
+    ray_dirs = ray_dirs.unsqueeze(1)
+    sample_positions = ray_dirs * sample_distances + ray_origs
+    sample_dirs = ray_dirs.repeat(1, num_samples_per_ray, 1)
     sample_positions_and_dirs = sample_positions.view(num_rays * num_samples_per_ray, 3)
     if include_view_direction:
         sample_positions_and_dirs = torch.cat(
