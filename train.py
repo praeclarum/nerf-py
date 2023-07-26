@@ -107,28 +107,21 @@ def get_train_rays(batch_size):
     batch_x = np.random.randint(0, width, size=batch_size)
     batch_color = image_color[batch_image_index, batch_y, batch_x]
     batch_ray_dir = image_ray_dir[batch_image_index, batch_y, batch_x]
-    batch_ray_orig = image_ray_dir[batch_image_index, batch_y, batch_x]
+    batch_ray_orig = image_ray_orig[batch_image_index, batch_y, batch_x]
     return batch_ray_orig, batch_ray_dir, batch_color
 
 
-def train_step(crop_size=128, num_accum=1):
+def train_step(batch_size=2**14):
     global num_trained_steps
     optimizer.zero_grad()
-    total_loss = 0.0
-    for i in range(num_accum):
-        ray_origs, ray_dirs, ray_colors = get_train_rays(batch_size=5)
-        ray_colors_pred = render_rays(ray_origs, ray_dirs)
-        loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors) / num_accum
-
-        # cam_ray_dirs, cam_transform, y = get_train_image(crop_size=crop_size)
-        # y_pred = render_image(cam_ray_dirs, cam_transform)
-        # loss = torch.nn.functional.mse_loss(y_pred, y) / num_accum
-
-        loss.backward()
-        total_loss += loss.detach().cpu()
+    ray_origs, ray_dirs, ray_colors = get_train_rays(batch_size=batch_size)
+    ray_colors_pred = render_rays(ray_origs, ray_dirs)
+    loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors)
+    loss.backward()
+    detached_loss = loss.detach().cpu()
     optimizer.step()
     num_trained_steps += 1
-    return total_loss
+    return detached_loss
 
 
 def train_loop(num_steps):
@@ -162,8 +155,8 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # train_image = image.image_tensor.to(device)
 images = data.load_images(images_dir, 128, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
-image_ray_dir = torch.cat([image.cam_ray_dirs.unsqueeze(0) for image in images], dim=0)
-print(f"Ray dirs {image_ray_dir.shape}")
+image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
+image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(
@@ -196,5 +189,6 @@ train_loop(2)
 train_loop(64)
 train_loop(128)
 train_loop(256)
+train_loop(512)
 for i in range(32):
-    train_loop(512)
+    train_loop(1024)

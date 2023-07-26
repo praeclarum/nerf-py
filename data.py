@@ -21,11 +21,10 @@ class ImageInfo:
                 (int(self.image.width * scale), int(self.image.height * scale)),
                 resample=Image.BICUBIC,
             )
+        self.width, self.height = self.image.size
         self.horizontal_fov_degrees = 62.3311
         self.intrinsics = torch.eye(4, device=device)
-        self.extrinsics = torch.eye(4, device=device)
         intrinsics_txt_path = f"{images_dir}/{image_id}_Intrinsics.txt"
-        extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         intrinsics_json_path = f"{images_dir}/{image_id}_intrinsics.json"
         if os.path.exists(intrinsics_json_path):
             intrinsics = json.load(open(intrinsics_json_path))
@@ -48,13 +47,23 @@ class ImageInfo:
         self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
             self.image.width, self.image.height, self.intrinsics, device
         )
+        self.set_extrinsics(torch.eye(4, device=device))
+        extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         if os.path.exists(extrinsics_txt_path):
-            self.extrinsics = load_matrix(extrinsics_txt_path, device)
-        # print(f"Intrinsics:\n{self.intrinsics}")
-        # print(f"Extrinsics:\n{self.extrinsics}")
-        self.width, self.height = self.image.size
+            self.set_extrinsics(load_matrix(extrinsics_txt_path, device))
         image_ar = np.array(self.image)
         self.image_tensor = torch.tensor(image_ar, device=device) / 255.0
+
+    def set_extrinsics(self, extrinsics):
+        self.extrinsics = extrinsics
+        position = extrinsics[:3, 3]
+        self.ray_origs = position.unsqueeze(0).unsqueeze(0).expand(
+            self.height, self.width, 3
+        )
+        rot = extrinsics[:3, :3].unsqueeze(0).unsqueeze(0).expand(
+            self.height, self.width, 3, 3
+        )
+        self.ray_dirs = torch.matmul(rot, self.cam_ray_dirs.unsqueeze(-1)).squeeze(-1)
 
     def show(self):
         fig, ax = plt.subplots()
@@ -107,7 +116,7 @@ def load_images(images_dir, max_size, device):
         if len(poses) != len(images):
             print(f"WARNING: len(poses) != len(images) {len(poses)} != {len(images)}")
         for i in range(len(images)):
-            images[i].extrinsics = load_json_matrix(poses[i], device)
+            images[i].set_extrinsics(load_json_matrix(poses[i], device))
             # print(f"Extrinsics {i}:\n  {image.extrinsics.device}\n  {image.extrinsics}")
     return images
 
