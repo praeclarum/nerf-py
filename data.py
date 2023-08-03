@@ -1,3 +1,4 @@
+import math
 import os
 import glob
 import torch
@@ -47,10 +48,16 @@ class ImageInfo:
         self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
             self.image.width, self.image.height, self.intrinsics, device
         )
-        self.set_extrinsics(torch.eye(4, device=device))
+        # fov_ray_dirs = renderer.get_fov_cam_ray_dirs(
+        #     self.image.width, self.image.height, horizontal_fov_radians=math.radians(self.horizontal_fov_degrees), device=device
+        # )
+        # print("INTRINSIC DIRS", self.cam_ray_dirs.shape, self.cam_ray_dirs)
+        # print("FOV DIRS", fov_ray_dirs.shape, fov_ray_dirs)
         extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         if os.path.exists(extrinsics_txt_path):
             self.set_extrinsics(load_matrix(extrinsics_txt_path, device))
+        else:
+            self.set_extrinsics(torch.eye(4, device=device))
         image_ar = np.array(self.image)
         self.image_tensor = torch.tensor(image_ar, device=device) / 255.0
 

@@ -184,12 +184,11 @@ def sample_binned_uniform_distances(
     return t
 
 
-def get_fov_cam_ray_dirs(width, height, horizontal_fov, device):
+def get_fov_cam_ray_dirs(width, height, horizontal_fov_radians, device):
     """
     Get the intrinsic camera ray directions
     """
     # compute ray directions for every pixel in camera space
-    horizontal_fov_radians = horizontal_fov
     rot_y_rads = torch.linspace(
         horizontal_fov_radians / 2.0,
         -horizontal_fov_radians / 2.0,
@@ -205,20 +204,21 @@ def get_fov_cam_ray_dirs(width, height, horizontal_fov, device):
     cam_ray_x_dir = -torch.sin(rot_y_rads) * torch.cos(rot_x_rads)
     cam_ray_y_dir = torch.sin(rot_x_rads)
     cam_ray_z_dir = -torch.cos(rot_y_rads) * torch.cos(rot_x_rads)
+    # cam_ray_z_dir = -torch.sqrt((1.0 - torch.square(cam_ray_x_dir) - torch.square(cam_ray_y_dir)))
     cam_ray_dir = torch.stack([cam_ray_x_dir, cam_ray_y_dir, cam_ray_z_dir], dim=2)
     return cam_ray_dir
 
 
 def get_intrinsic_cam_ray_dirs(width, height, intrinsics, device):
-    image_is = torch.linspace(0, height - 1, height, device=device)
-    image_js = torch.linspace(0, width - 1, width, device=device)
-    image_ijs = torch.stack(torch.meshgrid(image_is, image_js, indexing="ij"), dim=-1)
-    dir_xs = ((image_ijs[:, :, 0] - intrinsics[0, 2]) / intrinsics[0, 0]).unsqueeze(-1)
-    dir_ys = (-(image_ijs[:, :, 1] - intrinsics[1, 2]) / intrinsics[1, 1]).unsqueeze(-1)
+    image_xis = torch.linspace(0, width - 1, width, device=device).reshape(1, width).repeat(height, 1)
+    image_yis = torch.linspace(0, height - 1, height, device=device).reshape(height, 1).repeat(1, width)
+    # print("IMAGE XYIS", image_xyis.shape, image_xyis)
+    dir_xs = ((image_xis[:, :] - intrinsics[0, 2]) / intrinsics[0, 0]).unsqueeze(-1)
+    dir_ys = (-(image_yis[:, :] - intrinsics[1, 2]) / intrinsics[1, 1]).unsqueeze(-1)
     dir_zs = -torch.ones_like(dir_xs)
     # print("IMAGE XS", dir_xs.shape)
     # print("IMAGE YS", dir_ys.shape)
-    # print("IMAGE ZS", dir_ys.shape)
+    # print("IMAGE ZS", dir_zs.shape)
     dir_xyzs = torch.cat([dir_xs, dir_ys, dir_zs], dim=-1)
     # print("IMAGE XYZS", dir_xyzs.shape)
     # Normalize

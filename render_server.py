@@ -27,6 +27,7 @@ def load_checkpoint(path):
 
 
 def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=64):
+    
     return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
@@ -49,28 +50,16 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def index():
-    return """<!DOCTYPE html>
+    example_image = images[0]
+    example_matrix = example_image.extrinsics.cpu().numpy().tolist()
+    return f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>NeRF Render Server</title>
+    <title>NeRF Render</title>
 </head>
 <body>
-    <h1>NeRF Render Server</h1>
-    <p>Send a POST request to /api/generate with a JSON body containing a 4x4 matrix.</p>
-    <p>The last column should be <code>[Tx, Ty, Tz, 1]</code>.</p>
-    <p>Example:</p>
-    <code><pre>
-{
-    "matrix": [
-        [1.0, 0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0, 0.0],
-        [0.0, 0.0, 1.0, 0.0],
-        [0.0, 0.0, 0.0, 1.0]
-    ]
-}
-    </pre></code>
-    <p>Response:</p>
-    <img src="/api/generate" />
+    <h1>NeRF Render</h1>
+    <img src="/api/generate" width="384" />
 </body>
 </html>"""
 
@@ -78,16 +67,23 @@ def index():
 @app.route("/api/generate", methods=["POST", "GET"])
 def generate_image():
     # data = request.json
-    # matrix = data["matrix"]
+    # matrix = data["cam_transform"]
 
     image = images[0]
+    aspect = image.width / image.height
 
     # Convert to tensor and make sure it's 4x4
     # cam_transform = torch.tensor(matrix, dtype=torch.float32).view(4, 4)
     cam_transform = image.extrinsics
-    cam_ray_dirs = image.cam_ray_dirs
 
     # Generate the image using your model
+    height = 256
+    width = int(height * aspect)
+    horizontal_fov_degrees=62.3
+    cam_ray_dirs = renderer.get_fov_cam_ray_dirs(
+        width, height, horizontal_fov_radians=math.radians(horizontal_fov_degrees), device=device
+    )
+
     generated_image = render_image(cam_ray_dirs=cam_ray_dirs, cam_transform=cam_transform)
 
     # Convert the output tensor to a numpy array, and then to PIL image
@@ -95,6 +91,7 @@ def generate_image():
         generated_image.detach().cpu().numpy() * 255, 0, 255
     ).astype(np.uint8)
     image = Image.fromarray(generated_image)
+    image = image.rotate(270, expand=True)
 
     # Write to a BytesIO stream
     stream = io.BytesIO()
@@ -111,7 +108,7 @@ if __name__ == "__main__":
     # image = data.ImageInfo(images_dir, "Frame0", 128, device)
     # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
     # train_image = image.image_tensor.to(device)
-    images = data.load_images(images_dir, 128, device)
+    images = data.load_images(images_dir, 16, device)
 
     nerf_model, run_id, num_train_steps = load_checkpoint(
         "/Volumes/nn/Data/generated/nerf/piano3/2023-08-02_16-11-02/checkpoint_35716.pth"

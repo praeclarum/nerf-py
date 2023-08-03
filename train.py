@@ -186,7 +186,7 @@ camera_local_to_world = torch.eye(4, device=device)
 
 run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
-load_checkpoint("/Volumes/nn/Data/generated/nerf/piano3/2023-08-02_16-11-02/checkpoint_35716.pth")
+# load_checkpoint("/Volumes/nn/Data/generated/nerf/piano3/2023-08-02_16-11-02/checkpoint_35716.pth")
 
 output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
