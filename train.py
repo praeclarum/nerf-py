@@ -35,7 +35,7 @@ def load_checkpoint(path):
     run_id = os.path.basename(os.path.dirname(path))
 
 
-def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=64):
+def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray):
     return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
@@ -47,7 +47,7 @@ def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=64):
     )
 
 
-def render_rays(ray_origs, ray_dirs, num_samples_per_ray=16):
+def render_rays(ray_origs, ray_dirs, num_samples_per_ray):
     return renderer.render_rays(
         nerf_model,
         ray_origs=ray_origs,
@@ -106,15 +106,20 @@ def get_train_rays(batch_size):
     batch_color = image_color[batch_image_index, batch_y, batch_x]
     batch_ray_dir = image_ray_dir[batch_image_index, batch_y, batch_x]
     batch_ray_orig = image_ray_orig[batch_image_index, batch_y, batch_x]
-    return batch_ray_orig, batch_ray_dir, batch_color
+    batch_depth = image_depth[batch_image_index, batch_y, batch_x]
+    return batch_ray_orig, batch_ray_dir, batch_color, batch_depth
 
 
 def train_step(batch_size=2**16):
     global num_trained_steps
     optimizer.zero_grad()
-    ray_origs, ray_dirs, ray_colors = get_train_rays(batch_size=batch_size)
-    ray_colors_pred = render_rays(ray_origs, ray_dirs)
+    ray_origs, ray_dirs, ray_colors, ray_empty_depth = get_train_rays(batch_size=batch_size)
+    num_samples_per_ray = 16
+    ray_colors_pred = render_rays(ray_origs, ray_dirs, num_samples_per_ray=num_samples_per_ray)
     loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors)
+    empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1))
+    empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
+    loss = loss + 0.1 * torch.mean(torch.square(empty_densities_pred))
     loss.backward()
     detached_loss = loss.detach().cpu()
     optimizer.step()
@@ -162,6 +167,7 @@ images = data.load_images(images_dir, 256, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
 image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
+image_depth = torch.cat([image.depth.unsqueeze(0) for image in images], dim=0)
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(

@@ -52,6 +52,12 @@ class MildenhallNeRF(nn.Module):
         color = torch.sigmoid(h)
         density_and_color = torch.cat([density, color], dim=-1)
         return density_and_color
+    
+    def get_densities(self, points):
+        points = self.point_encoder(points)
+        h = self.density_mlp(points)
+        density = torch.sigmoid(h[:, 0]).unsqueeze(-1)
+        return density
 
 
 class DeepNeRF(nn.Module):
