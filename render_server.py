@@ -23,16 +23,17 @@ def load_checkpoint(path):
     return m, run_id, num_trained_steps
 
 
-def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=16):
-    return renderer.render_image(
-        get_model(),
-        cam_ray_dirs,
-        z_near=0.1,
-        z_far=4.0,
-        num_samples_per_ray=num_samples_per_ray,
-        camera_local_to_world=cam_transform,
-        include_view_direction=include_view_direction,
-    )
+def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=32):
+    with torch.no_grad():
+        return renderer.render_image(
+            get_model(),
+            cam_ray_dirs,
+            z_near=0.1,
+            z_far=4.0,
+            num_samples_per_ray=num_samples_per_ray,
+            camera_local_to_world=cam_transform,
+            include_view_direction=include_view_direction,
+        )
 
 
 include_view_direction = True
@@ -53,10 +54,10 @@ def index():
     return f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>NeRF Render</title>
+    <title>{dataset_name}</title>
 </head>
 <body>
-    <h1>NeRF Render</h1>
+    <h1>{dataset_name}</h1>
     <img id="rendererOutput" src="/api/render" width="384" />
     <script src="/renderer.js"></script>
     <script>
@@ -74,19 +75,16 @@ def renderer_js():
 
 @app.route("/api/render", methods=["POST", "GET"])
 def generate_image():
-    # data = request.json
-    # matrix = data["cam_transform"]
-    images = get_images()
-    image = images[0]
-    aspect = image.width / image.height
+    data = request.json
 
     # Convert to tensor and make sure it's 4x4
-    # cam_transform = torch.tensor(matrix, dtype=torch.float32).view(4, 4)
-    cam_transform = image.extrinsics
+    cam_transform = torch.tensor(
+        data["cam_transform"], dtype=torch.float32, device=device
+    ).view(4, 4)
 
     # Generate the image using your model
     height = 256
-    width = int(height * aspect)
+    width = 256  # int(height * aspect)
     horizontal_fov_degrees = 62.3
     cam_ray_dirs = renderer.get_fov_cam_ray_dirs(
         width,
@@ -100,9 +98,9 @@ def generate_image():
     )
 
     # Convert the output tensor to a numpy array, and then to PIL image
-    image_ar = np.clip(
-        rendered_image.detach().cpu().numpy() * 255, 0, 255
-    ).astype(np.uint8)
+    image_ar = np.clip(rendered_image.detach().cpu().numpy() * 255, 0, 255).astype(
+        np.uint8
+    )
     image = Image.fromarray(image_ar)
     image = image.rotate(270, expand=True)
 
@@ -113,9 +111,9 @@ def generate_image():
 
     del rendered_image
     del cam_ray_dirs
-    gc.collect()
 
     return send_file(stream, mimetype="image/jpeg")
+
 
 def get_images():
     global images
@@ -123,17 +121,22 @@ def get_images():
         images = data.load_images(images_dir, 16, device)
     return images
 
+
 def get_model():
     global nerf_model
+
     if nerf_model is None:
-        nerf_model, run_id, num_train_steps = load_checkpoint(
-            "/Volumes/nn/Data/generated/nerf/piano3/2023-08-03_12-07-32/checkpoint_4034.pth"
-        )
+        nerf_model, run_id, num_train_steps = load_checkpoint(checkpoint_path)
+        nerf_model.eval()
     return nerf_model
 
-if __name__ == "__main__":
-    dataset_name = sys.argv[1]
 
+if __name__ == "__main__":
+    checkpoint_path = sys.argv[1]
+
+    # "/Volumes/nn/Data/generated/nerf/piano3/2023-08-03_12-07-32/checkpoint_4034.pth"
+
+    dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
     images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
     images = None
     nerf_model = None

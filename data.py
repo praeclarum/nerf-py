@@ -14,6 +14,8 @@ import renderer
 class ImageInfo:
     def __init__(self, images_dir, image_id, max_size, device):
         image_path = f"{images_dir}/{image_id}.jpg"
+        if image_id.endswith("_Image"):
+            image_id = image_id[:-6]
         self.image = Image.open(image_path).convert("RGB")
         if self.image.width > max_size or self.image.height > max_size:
             max_dim = max(self.image.width, self.image.height)
@@ -39,20 +41,34 @@ class ImageInfo:
                 .readlines()[0]
                 .split()
             ]
-        if self.image.width != resolution[0] or self.image.height != resolution[1]:
+        if self.width != resolution[0] or self.height != resolution[1]:
             # print(
             #     f"RESOLUTION MISMATCH {resolution} vs {self.image.width} {self.image.height}"
             # )
-            scale = self.image.width / resolution[0]
+            scale = self.width / resolution[0]
             self.intrinsics *= scale
         self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
-            self.image.width, self.image.height, self.intrinsics, device
+            self.width, self.height, self.intrinsics, device
         )
+        print("INTRINSIC DIRS", self.cam_ray_dirs.shape)
         # fov_ray_dirs = renderer.get_fov_cam_ray_dirs(
         #     self.image.width, self.image.height, horizontal_fov_radians=math.radians(self.horizontal_fov_degrees), device=device
         # )
-        # print("INTRINSIC DIRS", self.cam_ray_dirs.shape, self.cam_ray_dirs)
         # print("FOV DIRS", fov_ray_dirs.shape, fov_ray_dirs)
+        self.depth = None
+        self.cam_depth_points = None
+        self.depth_points = None
+        depth_path = f"{images_dir}/{image_id}_depth.TIF"
+        if os.path.exists(depth_path):
+            depth_image = Image.open(depth_path)
+            depth_image = depth_image.resize(
+                (self.width, self.height), resample=Image.BICUBIC
+            )
+            depth_ar = np.array(depth_image)
+            depth_tensor = torch.tensor(depth_ar, device=device)
+            self.depth = depth_tensor
+            self.cam_depth_points = self.cam_ray_dirs * depth_tensor.unsqueeze(-1)
+            print("CAM DEPTH POINTS", self.cam_depth_points.shape)
         extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         if os.path.exists(extrinsics_txt_path):
             self.set_extrinsics(load_matrix(extrinsics_txt_path, device))
@@ -64,13 +80,21 @@ class ImageInfo:
     def set_extrinsics(self, extrinsics):
         self.extrinsics = extrinsics
         position = extrinsics[:3, 3]
-        self.ray_origs = position.unsqueeze(0).unsqueeze(0).expand(
-            self.height, self.width, 3
+        self.ray_origs = (
+            position.unsqueeze(0).unsqueeze(0).expand(self.height, self.width, 3)
         )
-        rot = extrinsics[:3, :3].unsqueeze(0).unsqueeze(0).expand(
-            self.height, self.width, 3, 3
+        rot = (
+            extrinsics[:3, :3]
+            .unsqueeze(0)
+            .unsqueeze(0)
+            .expand(self.height, self.width, 3, 3)
         )
         self.ray_dirs = torch.matmul(rot, self.cam_ray_dirs.unsqueeze(-1)).squeeze(-1)
+        if self.cam_depth_points is not None:
+            self.depth_points = (
+                torch.matmul(rot, self.cam_depth_points.unsqueeze(-1)).squeeze(-1)
+                + position
+            )
 
     def show(self):
         fig, ax = plt.subplots()
@@ -109,6 +133,58 @@ def load_matrix(path, device):
     return matrix
 
 
+class Obj:
+    def __init__(self):
+        self.verts = []
+        self.faces = []
+
+    def add_boxes_at_points(self, points, size):
+        for point in points:
+            self.add_box_at_point(point, size)
+
+    def add_box_at_point(self, point, size):
+        x, y, z = point
+        x1, y1, z1 = x - size, y - size, z - size
+        x2, y2, z2 = x + size, y + size, z + size
+        self.add_box(x1, y1, z1, x2, y2, z2)
+
+    def add_vert(self, x, y, z):
+        self.verts.append((x, y, z))
+        return len(self.verts) - 1
+
+    def add_tri(self, v1, v2, v3):
+        self.faces.append((v1, v2, v3))
+
+    def add_quad(self, v1, v2, v3, v4):
+        self.add_tri(v4, v3, v1)
+        self.add_tri(v3, v2, v1)
+
+    def add_box(self, x1, y1, z1, x2, y2, z2):
+        v1 = self.add_vert(x1, y1, z1)
+        v2 = self.add_vert(x2, y1, z1)
+        v3 = self.add_vert(x2, y2, z1)
+        v4 = self.add_vert(x1, y2, z1)
+        v5 = self.add_vert(x1, y1, z2)
+        v6 = self.add_vert(x2, y1, z2)
+        v7 = self.add_vert(x2, y2, z2)
+        v8 = self.add_vert(x1, y2, z2)
+        self.add_quad(v1, v2, v3, v4)
+        self.add_quad(v8, v7, v6, v5)
+        self.add_quad(v1, v5, v6, v2)
+        self.add_quad(v4, v3, v7, v8)
+        self.add_quad(v1, v4, v8, v5)
+        self.add_quad(v2, v6, v7, v3)
+
+    def save(self, path):
+        if os.path.exists(path):
+            os.remove(path)
+        with open(path, "w") as f:
+            for vert in self.verts:
+                f.write(f"v {vert[0]} {vert[1]} {vert[2]}\n")
+            for face in self.faces:
+                f.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
+
+
 def load_images(images_dir, max_size, device):
     print(f"Loading images from {images_dir}")
     image_paths = sorted(glob.glob(f"{images_dir}/*.jpg"))
@@ -125,6 +201,10 @@ def load_images(images_dir, max_size, device):
         for i in range(len(images)):
             images[i].set_extrinsics(load_json_matrix(poses[i], device))
             # print(f"Extrinsics {i}:\n  {image.extrinsics.device}\n  {image.extrinsics}")
+    # obj = Obj()
+    # for image in images:
+    #     obj.add_boxes_at_points(image.depth_points.view(-1, 3), 0.005)
+    # obj.save(f"{images_dir}/points.obj")
     return images
 
 

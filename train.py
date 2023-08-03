@@ -59,25 +59,26 @@ def render_rays(ray_origs, ray_dirs, num_samples_per_ray=16):
     )
 
 
-def sample(crop_size=384):
+def sample():
     global num_trained_steps
     samples = []
     nerf_model.eval()
-    for sample_i in range(4):
-        cam_ray_dirs, cam_transform, y = get_train_image(crop_size=crop_size)
-        depth_samples = [y.detach().cpu()]
-        for depth in [0.0, -0.1, 0.1]:
-            camera_local_to_world = torch.clone(cam_transform)
-            camera_local_to_world[2, 3] += depth
-            y_pred = (
-                render_image(
-                    cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64
+    with torch.no_grad():
+        for sample_i in range(4):
+            cam_ray_dirs, cam_transform, y = get_train_image()
+            depth_samples = [y.detach().cpu()]
+            for depth in [0.0, -0.1, 0.1]:
+                camera_local_to_world = torch.clone(cam_transform)
+                camera_local_to_world[2, 3] += depth
+                y_pred = (
+                    render_image(
+                        cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64
+                    )
+                    .detach()
+                    .cpu()
                 )
-                .detach()
-                .cpu()
-            )
-            depth_samples.append(y_pred)
-        samples.append(torch.cat(depth_samples, dim=1))
+                depth_samples.append(y_pred)
+            samples.append(torch.cat(depth_samples, dim=1))
     nerf_model.train()
     # renderer.show_image(y_pred)
     y_pred = torch.cat(samples, dim=0)
@@ -87,24 +88,11 @@ def sample(crop_size=384):
     os.rename(out_tmp_path, out_path)
 
 
-def get_train_image(crop_size):
+def get_train_image():
     image = images[np.random.randint(0, len(images))]
     image_tensor = image.image_tensor
-    height, width = image_tensor.shape[:2]
-    if width > crop_size or height > crop_size:
-        crop_y_index = np.random.randint(0, height - crop_size)
-        crop_x_index = np.random.randint(0, width - crop_size)
-        y = image_tensor[
-            crop_y_index : crop_y_index + crop_size,
-            crop_x_index : crop_x_index + crop_size,
-        ]
-        cam_ray_dirs = image.cam_ray_dirs[
-            crop_y_index : crop_y_index + crop_size,
-            crop_x_index : crop_x_index + crop_size,
-        ]
-    else:
-        y = image_tensor
-        cam_ray_dirs = image.cam_ray_dirs
+    y = image_tensor
+    cam_ray_dirs = image.cam_ray_dirs
     cam_transform = image.extrinsics
     return cam_ray_dirs, cam_transform, y
 
@@ -161,12 +149,16 @@ print(f'Using device "{device}": {device_name}')
 include_view_direction = True
 
 dataset_name = sys.argv[1]
+checkpoint_path = None
+if dataset_name.endswith(".pth"):
+    checkpoint_path = dataset_name
+    dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
 
 images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
-images = data.load_images(images_dir, 128, device)
+images = data.load_images(images_dir, 48, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
 image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
@@ -186,7 +178,8 @@ camera_local_to_world = torch.eye(4, device=device)
 
 run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
-# load_checkpoint("/Volumes/nn/Data/generated/nerf/piano3/2023-08-02_16-11-02/checkpoint_35716.pth")
+if checkpoint_path is not None:
+    load_checkpoint(checkpoint_path)
 
 output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
