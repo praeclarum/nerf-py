@@ -1,3 +1,4 @@
+import sys
 import datetime
 import os
 import shutil
@@ -25,7 +26,16 @@ def checkpoint():
     )
 
 
-def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
+def load_checkpoint(path):
+    global num_trained_steps, run_id
+    checkpoint = torch.load(path)
+    num_trained_steps = checkpoint["num_trained_steps"]
+    nerf_model.load_state_dict(checkpoint["model_state_dict"])
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    run_id = os.path.basename(os.path.dirname(path))
+
+
+def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=64):
     return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
@@ -37,13 +47,13 @@ def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=12):
     )
 
 
-def render_rays(ray_origs, ray_dirs, num_samples_per_ray=12):
+def render_rays(ray_origs, ray_dirs, num_samples_per_ray=16):
     return renderer.render_rays(
         nerf_model,
         ray_origs=ray_origs,
         ray_dirs=ray_dirs,
         z_near=0.1,
-        z_far=4.0,
+        z_far=2.0,
         num_samples_per_ray=num_samples_per_ray,
         include_view_direction=include_view_direction,
     )
@@ -111,7 +121,7 @@ def get_train_rays(batch_size):
     return batch_ray_orig, batch_ray_dir, batch_color
 
 
-def train_step(batch_size=2**14):
+def train_step(batch_size=2**16):
     global num_trained_steps
     optimizer.zero_grad()
     ray_origs, ray_dirs, ray_colors = get_train_rays(batch_size=batch_size)
@@ -125,6 +135,7 @@ def train_step(batch_size=2**14):
 
 
 def train_loop(num_steps):
+    global last_auto_checkpoint_time
     p = tqdm.tqdm(range(num_steps))
     loss_sum = 0.0
     loss_count = 0
@@ -134,20 +145,22 @@ def train_loop(num_steps):
         loss_count += 1
         average_loss = loss_sum / loss_count
         p.set_description(f"loss={average_loss:.4f}")
-    # checkpoint()
+    if (
+        last_auto_checkpoint_time is None
+        or (datetime.datetime.now() - last_auto_checkpoint_time).total_seconds()
+        > 60 * 5
+    ):
+        checkpoint()
+        last_auto_checkpoint_time = datetime.datetime.now()
     sample()
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device_name = "cpu" if device.type == "cpu" else torch.cuda.get_device_name(device)
 print(f'Using device "{device}": {device_name}')
 
-include_view_direction = False
+include_view_direction = True
 
-# images_dir = "/home/fak/Data/datasets/nerf/desk1"
-# image = data.ImageInfo(images_dir, "IMG_0001", 256)
-
-dataset_name = "piano1"
+dataset_name = sys.argv[1]
 
 images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
@@ -164,18 +177,20 @@ nerf_model = model.MildenhallNeRF(
 ).to(device)
 
 num_trained_steps = 0
+last_auto_checkpoint_time = None
 optimizer = torch.optim.Adam(
     nerf_model.parameters(), betas=(0.9, 0.99), eps=1e-15, lr=1e-2
 )
-
-total_batch_size = 2**18  # = 262144
 
 camera_local_to_world = torch.eye(4, device=device)
 
 run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
+load_checkpoint("/Volumes/nn/Data/generated/nerf/piano3/2023-08-02_16-11-02/checkpoint_35716.pth")
+
 output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
+print(f"Saving to {output_dir}...")
 tmp_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/tmp"
 os.makedirs(tmp_dir, exist_ok=True)
 code_files = glob.glob(f"{os.path.dirname(__file__)}/*.py")
@@ -190,5 +205,7 @@ train_loop(64)
 train_loop(128)
 train_loop(256)
 train_loop(512)
+checkpoint()
 for i in range(32):
     train_loop(1024)
+checkpoint()
