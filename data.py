@@ -50,7 +50,7 @@ class ImageInfo:
         self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
             self.width, self.height, self.intrinsics, device
         )
-        print("INTRINSIC DIRS", self.cam_ray_dirs.shape)
+        # print("INTRINSIC DIRS", self.cam_ray_dirs.shape)
         # fov_ray_dirs = renderer.get_fov_cam_ray_dirs(
         #     self.image.width, self.image.height, horizontal_fov_radians=math.radians(self.horizontal_fov_degrees), device=device
         # )
@@ -68,7 +68,7 @@ class ImageInfo:
             depth_tensor = torch.tensor(depth_ar, device=device)
             self.depth = depth_tensor
             self.cam_depth_points = self.cam_ray_dirs * depth_tensor.unsqueeze(-1)
-            print("CAM DEPTH POINTS", self.cam_depth_points.shape)
+            # print("CAM DEPTH POINTS", self.cam_depth_points.shape)
         extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         if os.path.exists(extrinsics_txt_path):
             self.set_extrinsics(load_matrix(extrinsics_txt_path, device))

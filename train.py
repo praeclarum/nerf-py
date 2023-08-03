@@ -158,7 +158,7 @@ images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
 # image = data.ImageInfo(images_dir, "Frame0", 128, device)
 # print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
 # train_image = image.image_tensor.to(device)
-images = data.load_images(images_dir, 48, device)
+images = data.load_images(images_dir, 256, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
 image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
