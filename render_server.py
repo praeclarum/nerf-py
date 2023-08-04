@@ -13,10 +13,24 @@ import gc
 
 
 def load_checkpoint(path):
+    global num_trained_steps, run_id, z_near, z_far, bb_min, bb_max, include_view_direction, cam_transforms
     checkpoint = torch.load(path)
     num_trained_steps = checkpoint["num_trained_steps"]
-    images = get_images()
-    bb_min, bb_max = data.get_images_bounding_box(images)
+    include_view_direction = checkpoint["include_view_direction"]
+    cam_transforms = [
+        torch.tensor(x, device=device) for x in checkpoint["cam_transforms"]
+    ]
+    bb_min = torch.tensor(checkpoint["bb_min"], device=device)
+    bb_max = torch.tensor(checkpoint["bb_max"], device=device)
+    z_near = checkpoint["z_near"]
+    z_far = checkpoint["z_far"]
+    print(
+        f"bb_min: {bb_min.tolist()}, bb_max: {bb_max.tolist()}, z_near: {z_near}, z_far: {z_far}, include_view_direction: {include_view_direction}"
+    )
+    print(
+        f"z_near: {z_near}, z_far: {z_far}, include_view_direction: {include_view_direction}"
+    )
+    print(f"include_view_direction: {include_view_direction}")
     m = model.MildenhallNeRF(
         include_view_direction=include_view_direction,
         bb_min=bb_min,
@@ -25,37 +39,38 @@ def load_checkpoint(path):
     ).to(device)
     m.load_state_dict(checkpoint["model_state_dict"])
     run_id = os.path.basename(os.path.dirname(path))
-    return m, run_id, num_trained_steps
+    return m
 
 
 def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=32):
     with torch.no_grad():
+        m = get_model()
         return renderer.render_image(
-            get_model(),
+            m,
             cam_ray_dirs,
-            z_near=0.01,
-            z_far=3.0,
+            z_near=z_near,
+            z_far=z_far,
             num_samples_per_ray=num_samples_per_ray,
             camera_local_to_world=cam_transform,
             include_view_direction=include_view_direction,
         )
 
 
-include_view_direction = True
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 device_name = "cpu" if device.type == "cpu" else torch.cuda.get_device_name(device)
 print(f'Using device "{device}": {device_name}')
-
 
 app = Flask(__name__)
 
 
 @app.route("/", methods=["GET"])
 def index():
-    images = get_images()
-    initial_image = images[torch.randint(len(images), (1,))]
-    initial_matrix = initial_image.extrinsics.cpu().numpy().tolist()
+    initial_matrix = (
+        cam_transforms[torch.randint(len(cam_transforms), (1,))]
+        if len(cam_transforms) > 0
+        else torch.eye(4, device=device)
+    )
+    initial_matrix = initial_matrix.tolist()
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -129,22 +144,25 @@ def get_images():
 
 def get_model():
     global nerf_model
-
     if nerf_model is None:
-        nerf_model, run_id, num_train_steps = load_checkpoint(checkpoint_path)
+        nerf_model = load_checkpoint(checkpoint_path)
         nerf_model.eval()
     return nerf_model
 
 
+images = None
+nerf_model = None
+z_near = 0.01
+z_far = 4.0
+bb_min = None
+bb_max = None
+include_view_direction = True
+run_id = None
+cam_transforms = []
+
 if __name__ == "__main__":
     checkpoint_path = sys.argv[1]
-
-    # "/Volumes/nn/Data/generated/nerf/piano3/2023-08-03_12-07-32/checkpoint_4034.pth"
-
     dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
     run_id = os.path.basename(os.path.dirname(checkpoint_path))
     images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
-    images = None
-    nerf_model = None
-
     app.run(host="0.0.0.0", debug=True)

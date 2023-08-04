@@ -228,8 +228,6 @@ def get_images_bounding_box(images):
     points = torch.cat(points, dim=0)
     points_min = torch.min(points, dim=0)[0]
     points_max = torch.max(points, dim=0)[0]
-    print("POINTS MIN", points_min)
-    print("POINTS MAX", points_max)
     return points_min, points_max
 
 

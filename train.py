@@ -21,29 +21,37 @@ def checkpoint():
             "num_trained_steps": num_trained_steps,
             "model_state_dict": nerf_model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "include_view_direction": include_view_direction,
             "bb_min": bb_min.cpu().tolist(),
             "bb_max": bb_max.cpu().tolist(),
+            "z_near": z_near,
+            "z_far": z_far,
             "cam_transforms": [image.extrinsics.cpu().tolist() for image in images],
+            "train_num_samples_per_ray": train_num_samples_per_ray,
         },
         out_path,
     )
 
 
 def load_checkpoint(path):
-    global num_trained_steps, run_id
+    global num_trained_steps, run_id, z_near, z_far, bb_min, bb_max
     checkpoint = torch.load(path)
     num_trained_steps = checkpoint["num_trained_steps"]
+    run_id = os.path.basename(os.path.dirname(path))
     nerf_model.load_state_dict(checkpoint["model_state_dict"])
     optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    run_id = os.path.basename(os.path.dirname(path))
+    bb_min = torch.tensor(checkpoint["bb_min"], device=device)
+    bb_max = torch.tensor(checkpoint["bb_max"], device=device)
+    z_near = checkpoint["z_near"]
+    z_far = checkpoint["z_far"]
 
 
 def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray):
     return renderer.render_image(
         nerf_model,
         cam_ray_dirs,
-        z_near=0.01,
-        z_far=3.0,
+        z_near=z_near,
+        z_far=z_far,
         num_samples_per_ray=num_samples_per_ray,
         camera_local_to_world=cam_transform,
         include_view_direction=include_view_direction,
@@ -55,8 +63,8 @@ def render_rays(ray_origs, ray_dirs, num_samples_per_ray):
         nerf_model,
         ray_origs=ray_origs,
         ray_dirs=ray_dirs,
-        z_near=0.01,
-        z_far=3.0,
+        z_near=z_near,
+        z_far=z_far,
         num_samples_per_ray=num_samples_per_ray,
         include_view_direction=include_view_direction,
     )
@@ -111,12 +119,7 @@ def get_train_rays(batch_size):
     batch_d_ray_dir = image_d_ray_dir[batch_image_index, batch_y, batch_x]
     batch_ray_blend = torch.rand(batch_size, device=device)
     batch_ray_dir = batch_min_ray_dir + batch_ray_blend.unsqueeze(-1) * batch_d_ray_dir
-    # Normalize batch_ray_dir to be length 1
     batch_ray_dir = batch_ray_dir / torch.norm(batch_ray_dir, dim=-1, keepdim=True)
-    # print("batch_min_ray_dir", batch_min_ray_dir.shape)
-    # print("batch_d_ray_dir", batch_d_ray_dir.shape)
-    # print("batch_ray_blend", batch_ray_blend.shape)
-    # print("batch_ray_dir", batch_ray_dir.shape)
     batch_ray_orig = image_ray_orig[batch_image_index, batch_y, batch_x]
     batch_depth = image_depth[batch_image_index, batch_y, batch_x]
     return batch_ray_orig, batch_ray_dir, batch_color, batch_depth
@@ -126,8 +129,7 @@ def train_step(batch_size=2**16):
     global num_trained_steps
     optimizer.zero_grad()
     ray_origs, ray_dirs, ray_colors, ray_empty_depth = get_train_rays(batch_size=batch_size)
-    num_samples_per_ray = 16
-    ray_colors_pred = render_rays(ray_origs, ray_dirs, num_samples_per_ray=num_samples_per_ray)
+    ray_colors_pred = render_rays(ray_origs, ray_dirs, num_samples_per_ray=train_num_samples_per_ray)
     loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors)
     # empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1)) * 0.9
     # empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
@@ -183,6 +185,9 @@ image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], d
 image_depth = torch.cat([image.depth.unsqueeze(0) for image in images], dim=0)
 
 bb_min, bb_max = data.get_images_bounding_box(images)
+z_near = 0.01
+z_far = (bb_max - bb_min).norm().item() * 1.1
+train_num_samples_per_ray = 16
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(
@@ -204,6 +209,9 @@ run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
 if checkpoint_path is not None:
     load_checkpoint(checkpoint_path)
+
+print(f"BB_MIN {bb_min.tolist()}, BB_MAX {bb_max.tolist()}")
+print(f"Z_NEAR {z_near}, Z_FAR {z_far}")
 
 output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
