@@ -21,6 +21,9 @@ def checkpoint():
             "num_trained_steps": num_trained_steps,
             "model_state_dict": nerf_model.state_dict(),
             "optimizer_state_dict": optimizer.state_dict(),
+            "bb_min": bb_min.cpu().tolist(),
+            "bb_max": bb_max.cpu().tolist(),
+            "cam_transforms": [image.extrinsics.cpu().tolist() for image in images],
         },
         out_path,
     )
@@ -84,7 +87,7 @@ def sample():
     y_pred = torch.cat(samples, dim=0)
     out_path = f"{output_dir}/sample_{num_trained_steps:04d}.png"
     out_tmp_path = f"{tmp_dir}/sample_{num_trained_steps:04d}.png"
-    Image.fromarray(np.uint8(y_pred.numpy() * 255)).save(out_tmp_path)
+    Image.fromarray(np.uint8(y_pred.numpy() * 255)).rotate(270, expand=True).save(out_tmp_path)
     os.rename(out_tmp_path, out_path)
 
 
