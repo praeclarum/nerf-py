@@ -9,14 +9,16 @@ class MildenhallNeRF(nn.Module):
         include_view_direction=True,
         num_density_layers=1,
         num_color_layers=2,
+        bb_min=torch.tensor([-2, -2, -2], dtype=torch.float32),
+        bb_max=torch.tensor([-2, -2, -2], dtype=torch.float32),
         device="cpu",
     ):
         super().__init__()
         point_levels = 16
         point_features = 2
         self.point_encoder = PointEncoder3(
-            bb_min=torch.tensor([-2, -2, -2], dtype=torch.float32, device=device),
-            bb_max=torch.tensor([2, 2, 2], dtype=torch.float32, device=device),
+            bb_min=bb_min.to(device),
+            bb_max=bb_max.to(device),
             number_of_levels=point_levels,
             max_entries_per_level=2**24 // point_features // point_levels,
             feature_dim=point_features,
