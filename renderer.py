@@ -72,7 +72,7 @@ def render_rays(
     """
     num_rays = ray_dirs.shape[0]
     # Get the sample points along each ray
-    sample_distances = sample_binned_uniform_distances(
+    sample_distances = sample_log_binned_uniform_distances(
         z_near, z_far, num_rays, num_samples_per_ray, device=ray_origs.device
     )
     sample_distances = sample_distances.view(num_rays, num_samples_per_ray, 1)
@@ -171,7 +171,7 @@ def alpha_composite_rgba(
     return composite_rgba
 
 
-def sample_binned_uniform_distances(
+def sample_linear_binned_uniform_distances(
     t_min, t_max, num_rays, num_samples_per_ray, device
 ):
     """
@@ -181,6 +181,27 @@ def sample_binned_uniform_distances(
     bin_dt = dt / num_samples_per_ray
     u = torch.rand((num_rays, num_samples_per_ray), device=device) * bin_dt
     t = torch.linspace(t_min, t_max - bin_dt, num_samples_per_ray, device=device) + u
+    return t
+
+
+def sample_log_binned_uniform_distances(
+    t_min, t_max, num_rays, num_samples_per_ray, device
+):
+    """
+    Sample distances along rays in a uniform grid
+    """
+    log_t_max = math.log(t_max)
+    log_t_min = math.log(t_min)
+    log_dt = log_t_max - log_t_min
+    log_bin_dt = log_dt / num_samples_per_ray
+    log_u = torch.rand((num_rays, num_samples_per_ray), device=device) * log_bin_dt
+    log_t = (
+        torch.linspace(
+            log_t_min, log_t_max - log_bin_dt, num_samples_per_ray, device=device
+        )
+        + log_u
+    )
+    t = torch.exp(log_t)
     return t
 
 
@@ -209,12 +230,24 @@ def get_fov_cam_ray_dirs(width, height, horizontal_fov_radians, device):
     return cam_ray_dir
 
 
-def get_intrinsic_cam_ray_dirs(width, height, intrinsics, device):
-    image_xis = torch.linspace(0, width - 1, width, device=device).reshape(1, width).repeat(height, 1)
-    image_yis = torch.linspace(0, height - 1, height, device=device).reshape(height, 1).repeat(1, width)
+def get_intrinsic_cam_ray_dirs(width, height, intrinsics, offset, device):
+    image_xis = (
+        torch.linspace(0, width - 1, width, device=device)
+        .reshape(1, width)
+        .repeat(height, 1)
+    )
+    image_yis = (
+        torch.linspace(0, height - 1, height, device=device)
+        .reshape(height, 1)
+        .repeat(1, width)
+    )
     # print("IMAGE XYIS", image_xyis.shape, image_xyis)
-    dir_xs = ((image_xis[:, :] - intrinsics[0, 2]) / intrinsics[0, 0]).unsqueeze(-1)
-    dir_ys = (-(image_yis[:, :] - intrinsics[1, 2]) / intrinsics[1, 1]).unsqueeze(-1)
+    dir_xs = (
+        (image_xis[:, :] + offset - intrinsics[0, 2]) / intrinsics[0, 0]
+    ).unsqueeze(-1)
+    dir_ys = (
+        -(image_yis[:, :] + offset - intrinsics[1, 2]) / intrinsics[1, 1]
+    ).unsqueeze(-1)
     dir_zs = -torch.ones_like(dir_xs)
     # print("IMAGE XS", dir_xs.shape)
     # print("IMAGE YS", dir_ys.shape)
