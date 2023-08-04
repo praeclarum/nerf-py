@@ -15,8 +15,13 @@ import gc
 def load_checkpoint(path):
     checkpoint = torch.load(path)
     num_trained_steps = checkpoint["num_trained_steps"]
+    images = get_images()
+    bb_min, bb_max = data.get_images_bounding_box(images)
     m = model.MildenhallNeRF(
-        include_view_direction=include_view_direction, device=device
+        include_view_direction=include_view_direction,
+        bb_min=bb_min,
+        bb_max=bb_max,
+        device=device,
     ).to(device)
     m.load_state_dict(checkpoint["model_state_dict"])
     run_id = os.path.basename(os.path.dirname(path))
@@ -28,8 +33,8 @@ def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=32):
         return renderer.render_image(
             get_model(),
             cam_ray_dirs,
-            z_near=0.1,
-            z_far=4.0,
+            z_near=0.01,
+            z_far=3.0,
             num_samples_per_ray=num_samples_per_ray,
             camera_local_to_world=cam_transform,
             include_view_direction=include_view_direction,
@@ -49,15 +54,15 @@ app = Flask(__name__)
 @app.route("/", methods=["GET"])
 def index():
     images = get_images()
-    initial_image = images[0]
+    initial_image = images[torch.randint(len(images), (1,))]
     initial_matrix = initial_image.extrinsics.cpu().numpy().tolist()
     return f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>{dataset_name}</title>
+    <title>{dataset_name} - {run_id}</title>
 </head>
 <body>
-    <h1>{dataset_name}</h1>
+    <h1>{dataset_name} - {run_id}</h1>
     <img id="rendererOutput" src="/api/render" width="384" />
     <script src="/renderer.js"></script>
     <script>
@@ -137,6 +142,7 @@ if __name__ == "__main__":
     # "/Volumes/nn/Data/generated/nerf/piano3/2023-08-03_12-07-32/checkpoint_4034.pth"
 
     dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
+    run_id = os.path.basename(os.path.dirname(checkpoint_path))
     images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
     images = None
     nerf_model = None
