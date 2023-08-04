@@ -126,7 +126,7 @@ def get_train_rays(batch_size):
     return batch_ray_orig, batch_ray_dir, batch_color, batch_depth
 
 
-def train_step(batch_size=2**15):
+def train_step(batch_size=2**14):
     global num_trained_steps
     train_empty_using_depth = True
     optimizer.zero_grad()
@@ -134,9 +134,11 @@ def train_step(batch_size=2**15):
     ray_colors_pred = render_rays(ray_origs, ray_dirs, num_samples_per_ray=train_num_samples_per_ray)
     loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors)
     if has_depth and train_empty_using_depth:
-        empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1)) * 0.9
-        empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
-        loss = loss + (1.0 / train_num_samples_per_ray) * torch.mean(torch.square(empty_densities_pred))
+        num_empty_samples_per_ray = train_num_samples_per_ray
+        for _ in range(num_empty_samples_per_ray):
+            empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1)) * 0.9
+            empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
+            loss = loss + (1.0 / num_empty_samples_per_ray) * torch.mean(torch.square(empty_densities_pred))
     loss.backward()
     detached_loss = loss.detach().cpu()
     optimizer.step()
@@ -177,21 +179,23 @@ if dataset_name.endswith(".pth"):
     dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
 
 images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
-images = data.load_images(images_dir, 256, device)
+images = data.load_images(images_dir, 384, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
 image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_d_ray_dir = torch.cat([image.d_ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
 has_depth = False
-if len(images) > 0 and images[0].depth is not None:
-    image_depth = torch.cat([image.depth.unsqueeze(0) for image in images], dim=0)
+if len(images) > 0 and images[0].depth_along_ray is not None:
+    image_depth = torch.cat([image.depth_along_ray.unsqueeze(0) for image in images], dim=0)
     has_depth = True
 else:
     image_depth = None
+print(f"Has depth = {has_depth}")
 
 bb_min, bb_max = data.get_images_bounding_box(images)
+scene_size = (bb_max - bb_min).norm().item()
 z_near = 0.01
-z_far = (bb_max - bb_min).norm().item() * 1.1
+z_far = scene_size * 1.1
 train_num_samples_per_ray = 64
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
@@ -208,15 +212,15 @@ optimizer = torch.optim.Adam(
     nerf_model.parameters(), betas=(0.9, 0.99), eps=1e-15, lr=1e-2
 )
 
-camera_local_to_world = torch.eye(4, device=device)
-
 run_id = f"{datetime.datetime.now():%Y-%m-%d_%H-%M-%S}"
 
 if checkpoint_path is not None:
     load_checkpoint(checkpoint_path)
 
-print(f"BB_MIN {bb_min.tolist()}, BB_MAX {bb_max.tolist()}")
-print(f"Z_NEAR {z_near}, Z_FAR {z_far}")
+print(f"BB_MIN {bb_min.tolist()}")
+print(f"BB_MAX {bb_max.tolist()}")
+print(f"Z_NEAR {z_near}")
+print(f" Z_FAR {z_far}")
 
 output_dir = f"/home/fak/nn/Data/generated/nerf/{dataset_name}/{run_id}"
 os.makedirs(output_dir, exist_ok=True)
@@ -226,7 +230,6 @@ os.makedirs(tmp_dir, exist_ok=True)
 code_files = glob.glob(f"{os.path.dirname(__file__)}/*.py")
 for code_file in code_files:
     shutil.copy(code_file, output_dir)
-
 sample()
 
 print(f"Training {run_id}...")

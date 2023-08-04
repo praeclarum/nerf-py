@@ -1,3 +1,4 @@
+from ctypes import Array
 import math
 import os
 import glob
@@ -70,7 +71,11 @@ class ImageInfo:
             depth_ar = np.array(depth_image)
             depth_tensor = torch.tensor(depth_ar, device=device)
             self.depth = depth_tensor
-            self.cam_depth_points = self.cam_ray_dirs * depth_tensor.unsqueeze(-1)
+            # self.cam_depth_points = self.cam_ray_dirs * depth_tensor.unsqueeze(-1)
+            self.cam_depth_points = renderer.get_depth_points(
+                depth_tensor, self.intrinsics, 0.0, device
+            )
+            self.depth_along_ray = torch.norm(self.cam_depth_points, dim=-1)
             # print("CAM DEPTH POINTS", self.cam_depth_points.shape)
         extrinsics_txt_path = f"{images_dir}/{image_id}_Transform.txt"
         if os.path.exists(extrinsics_txt_path):
@@ -93,7 +98,9 @@ class ImageInfo:
             .expand(self.height, self.width, 3, 3)
         )
         self.ray_dirs = torch.matmul(rot, self.cam_ray_dirs.unsqueeze(-1)).squeeze(-1)
-        max_ray_dirs = torch.matmul(rot, self.cam_max_ray_dirs.unsqueeze(-1)).squeeze(-1)
+        max_ray_dirs = torch.matmul(rot, self.cam_max_ray_dirs.unsqueeze(-1)).squeeze(
+            -1
+        )
         self.d_ray_dirs = max_ray_dirs - self.ray_dirs
         if self.cam_depth_points is not None:
             self.depth_points = (
@@ -152,7 +159,7 @@ def load_matrix(path, device):
 class Obj:
     def __init__(self):
         self.verts = []
-        self.faces = []
+        self.tris = []
 
     def add_boxes_at_points(self, points, size):
         for point in points:
@@ -169,7 +176,7 @@ class Obj:
         return len(self.verts) - 1
 
     def add_tri(self, v1, v2, v3):
-        self.faces.append((v1, v2, v3))
+        self.tris.append((v1, v2, v3))
 
     def add_quad(self, v1, v2, v3, v4):
         self.add_tri(v4, v3, v1)
@@ -197,11 +204,11 @@ class Obj:
         with open(path, "w") as f:
             for vert in self.verts:
                 f.write(f"v {vert[0]} {vert[1]} {vert[2]}\n")
-            for face in self.faces:
+            for face in self.tris:
                 f.write(f"f {face[0] + 1} {face[1] + 1} {face[2] + 1}\n")
 
 
-def load_images(images_dir, max_size, device):
+def load_images(images_dir, max_size, device) -> Array[ImageInfo]:
     print(f"Loading images from {images_dir}")
     image_paths = sorted(glob.glob(f"{images_dir}/*.jpg"))
     images = []
@@ -216,12 +223,12 @@ def load_images(images_dir, max_size, device):
             print(f"WARNING: len(poses) != len(images) {len(poses)} != {len(images)}")
         for i in range(len(images)):
             images[i].set_extrinsics(load_json_matrix(poses[i], device))
-            # print(f"Extrinsics {i}:\n  {image.extrinsics.device}\n  {image.extrinsics}")
     # obj = Obj()
     # for image in images:
     #     obj.add_boxes_at_points(image.depth_points.view(-1, 3), 0.005)
-    # obj.save(f"{images_dir}/points.obj")
+    # obj.save(f"{images_dir}/points2.obj")
     return images
+
 
 def get_images_bounding_box(images):
     points = []

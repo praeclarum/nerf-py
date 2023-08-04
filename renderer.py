@@ -230,6 +230,33 @@ def get_fov_cam_ray_dirs(width, height, horizontal_fov_radians, device):
     return cam_ray_dir
 
 
+def get_depth_points(depth, intrinsics, offset, device):
+    height, width = depth.shape
+    xis = (
+        torch.linspace(0, width - 1, width, device=device)
+        .reshape(1, width)
+        .repeat(height, 1)
+    )
+    yis = (
+        torch.linspace(0, height - 1, height, device=device)
+        .reshape(height, 1)
+        .repeat(1, width)
+    )
+    xs = ((xis[:, :] + offset - intrinsics[0, 2]) * depth / intrinsics[0, 0]).unsqueeze(
+        -1
+    )
+    ys = (
+        -(yis[:, :] + offset - intrinsics[1, 2]) * depth / intrinsics[1, 1]
+    ).unsqueeze(-1)
+    zs = -depth.view(height, width, 1)
+    xyzs = torch.cat([xs, ys, zs], dim=-1)
+    # print("DEPTH XS", xs.shape)
+    # print("DEPTH YS", ys.shape)
+    # print("DEPTH ZS", zs.shape)
+    # print("DEPTH XYZS", xyzs.shape)
+    return xyzs.contiguous()
+
+
 def get_intrinsic_cam_ray_dirs(width, height, intrinsics, offset, device):
     image_xis = (
         torch.linspace(0, width - 1, width, device=device)
