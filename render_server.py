@@ -13,13 +13,14 @@ import gc
 
 
 def load_checkpoint(path):
-    global num_trained_steps, run_id, z_near, z_far, bb_min, bb_max, include_view_direction, cam_transforms
+    global num_trained_steps, run_id, z_near, z_far, bb_min, bb_max, include_view_direction, cam_transforms, train_num_samples_per_ray
     checkpoint = torch.load(path)
     num_trained_steps = checkpoint["num_trained_steps"]
     include_view_direction = checkpoint["include_view_direction"]
     cam_transforms = [
         torch.tensor(x, device=device) for x in checkpoint["cam_transforms"]
     ]
+    train_num_samples_per_ray = checkpoint["train_num_samples_per_ray"]
     bb_min = torch.tensor(checkpoint["bb_min"], device=device)
     bb_max = torch.tensor(checkpoint["bb_max"], device=device)
     z_near = checkpoint["z_near"]
@@ -42,7 +43,7 @@ def load_checkpoint(path):
     return m
 
 
-def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=32):
+def render_image(cam_ray_dirs, cam_transform):
     with torch.no_grad():
         m = get_model()
         return renderer.render_image(
@@ -50,7 +51,7 @@ def render_image(cam_ray_dirs, cam_transform, num_samples_per_ray=32):
             cam_ray_dirs,
             z_near=z_near,
             z_far=z_far,
-            num_samples_per_ray=num_samples_per_ray,
+            num_samples_per_ray=train_num_samples_per_ray,
             camera_local_to_world=cam_transform,
             include_view_direction=include_view_direction,
         )
@@ -65,6 +66,7 @@ app = Flask(__name__)
 
 @app.route("/", methods=["GET"])
 def index():
+    m = get_model()
     initial_matrix = (
         cam_transforms[torch.randint(len(cam_transforms), (1,))]
         if len(cam_transforms) > 0
@@ -152,6 +154,7 @@ def get_model():
 
 images = None
 nerf_model = None
+train_num_samples_per_ray = 16
 z_near = 0.01
 z_far = 4.0
 bb_min = None
