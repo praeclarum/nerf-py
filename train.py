@@ -78,12 +78,13 @@ def sample():
         for sample_i in range(4):
             cam_ray_dirs, cam_transform, y = get_train_image()
             depth_samples = [y.detach().cpu()]
-            for depth in [0.0, -0.1, 0.1]:
+            for depth in [0.0, -0.33, 0.33]:
                 camera_local_to_world = torch.clone(cam_transform)
-                camera_local_to_world[2, 3] += depth
+                dir_vector = camera_local_to_world[0:3, 2]
+                camera_local_to_world[0:3, 3] = camera_local_to_world[0:3, 3] + dir_vector * depth
                 y_pred = (
                     render_image(
-                        cam_ray_dirs, camera_local_to_world, num_samples_per_ray=64
+                        cam_ray_dirs, camera_local_to_world, num_samples_per_ray=train_num_samples_per_ray
                     )
                     .detach()
                     .cpu()
@@ -121,19 +122,21 @@ def get_train_rays(batch_size):
     batch_ray_dir = batch_min_ray_dir + batch_ray_blend.unsqueeze(-1) * batch_d_ray_dir
     batch_ray_dir = batch_ray_dir / torch.norm(batch_ray_dir, dim=-1, keepdim=True)
     batch_ray_orig = image_ray_orig[batch_image_index, batch_y, batch_x]
-    batch_depth = image_depth[batch_image_index, batch_y, batch_x]
+    batch_depth = image_depth[batch_image_index, batch_y, batch_x] if has_depth else None
     return batch_ray_orig, batch_ray_dir, batch_color, batch_depth
 
 
-def train_step(batch_size=2**16):
+def train_step(batch_size=2**15):
     global num_trained_steps
+    train_empty_using_depth = True
     optimizer.zero_grad()
     ray_origs, ray_dirs, ray_colors, ray_empty_depth = get_train_rays(batch_size=batch_size)
     ray_colors_pred = render_rays(ray_origs, ray_dirs, num_samples_per_ray=train_num_samples_per_ray)
     loss = torch.nn.functional.mse_loss(ray_colors_pred, ray_colors)
-    # empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1)) * 0.9
-    # empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
-    # loss = loss + (1.0 / num_samples_per_ray) * torch.mean(torch.square(empty_densities_pred))
+    if has_depth and train_empty_using_depth:
+        empty_points = ray_origs + ray_dirs * ray_empty_depth.unsqueeze(-1) * torch.rand_like(ray_empty_depth.unsqueeze(-1)) * 0.9
+        empty_densities_pred = nerf_model.get_densities(empty_points.view(-1, 3))
+        loss = loss + (1.0 / train_num_samples_per_ray) * torch.mean(torch.square(empty_densities_pred))
     loss.backward()
     detached_loss = loss.detach().cpu()
     optimizer.step()
@@ -174,20 +177,22 @@ if dataset_name.endswith(".pth"):
     dataset_name = os.path.basename(os.path.dirname(os.path.dirname(checkpoint_path)))
 
 images_dir = f"/Volumes/home/Data/datasets/nerf/{dataset_name}"
-# image = data.ImageInfo(images_dir, "Frame0", 128, device)
-# print(f"IMAGE WIDTH {image.width}, HEIGHT {image.height}")
-# train_image = image.image_tensor.to(device)
 images = data.load_images(images_dir, 256, device)
 image_color = torch.cat([image.image_tensor.unsqueeze(0) for image in images], dim=0)
 image_ray_dir = torch.cat([image.ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_d_ray_dir = torch.cat([image.d_ray_dirs.unsqueeze(0) for image in images], dim=0)
 image_ray_orig = torch.cat([image.ray_origs.unsqueeze(0) for image in images], dim=0)
-image_depth = torch.cat([image.depth.unsqueeze(0) for image in images], dim=0)
+has_depth = False
+if len(images) > 0 and images[0].depth is not None:
+    image_depth = torch.cat([image.depth.unsqueeze(0) for image in images], dim=0)
+    has_depth = True
+else:
+    image_depth = None
 
 bb_min, bb_max = data.get_images_bounding_box(images)
 z_near = 0.01
 z_far = (bb_max - bb_min).norm().item() * 1.1
-train_num_samples_per_ray = 16
+train_num_samples_per_ray = 64
 
 # nerf_model = model.DeepNeRF(include_view_direction=include_view_direction).to(device)
 nerf_model = model.MildenhallNeRF(

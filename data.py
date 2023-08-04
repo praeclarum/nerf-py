@@ -108,6 +108,9 @@ class ImageInfo:
             std_pos = torch.sqrt(var_pos)
             self.bb_min = mean_pos - 3 * std_pos
             self.bb_max = mean_pos + 3 * std_pos
+        else:
+            self.bb_min = self.extrinsics[:3, 3] - 0.5
+            self.bb_max = self.extrinsics[:3, 3] + 0.5
 
     def show(self):
         fig, ax = plt.subplots()
