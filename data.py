@@ -48,7 +48,10 @@ class ImageInfo:
             scale = self.width / resolution[0]
             self.intrinsics *= scale
         self.cam_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
-            self.width, self.height, self.intrinsics, device
+            self.width, self.height, self.intrinsics, 0.0, device
+        )
+        self.cam_max_ray_dirs = renderer.get_intrinsic_cam_ray_dirs(
+            self.width, self.height, self.intrinsics, 1.0, device
         )
         # print("INTRINSIC DIRS", self.cam_ray_dirs.shape)
         # fov_ray_dirs = renderer.get_fov_cam_ray_dirs(
@@ -90,11 +93,21 @@ class ImageInfo:
             .expand(self.height, self.width, 3, 3)
         )
         self.ray_dirs = torch.matmul(rot, self.cam_ray_dirs.unsqueeze(-1)).squeeze(-1)
+        max_ray_dirs = torch.matmul(rot, self.cam_max_ray_dirs.unsqueeze(-1)).squeeze(-1)
+        self.d_ray_dirs = max_ray_dirs - self.ray_dirs
         if self.cam_depth_points is not None:
             self.depth_points = (
                 torch.matmul(rot, self.cam_depth_points.unsqueeze(-1)).squeeze(-1)
                 + position
             )
+            # Filter out points when calculating the bbox.
+            # Calc the mean, then the variance in 3D.
+            # Use those to calc the bbox.
+            mean_pos = torch.mean(self.depth_points.view(-1, 3), dim=0)
+            var_pos = torch.var(self.depth_points.view(-1, 3), dim=0)
+            std_pos = torch.sqrt(var_pos)
+            self.bb_min = mean_pos - 3 * std_pos
+            self.bb_max = mean_pos + 3 * std_pos
 
     def show(self):
         fig, ax = plt.subplots()
@@ -206,6 +219,18 @@ def load_images(images_dir, max_size, device):
     #     obj.add_boxes_at_points(image.depth_points.view(-1, 3), 0.005)
     # obj.save(f"{images_dir}/points.obj")
     return images
+
+def get_images_bounding_box(images):
+    points = []
+    for image in images:
+        points.append(image.bb_min.view(1, 3))
+        points.append(image.bb_max.view(1, 3))
+    points = torch.cat(points, dim=0)
+    points_min = torch.min(points, dim=0)[0]
+    points_max = torch.max(points, dim=0)[0]
+    print("POINTS MIN", points_min)
+    print("POINTS MAX", points_max)
+    return points_min, points_max
 
 
 def get_cam_bounding_box(images):
